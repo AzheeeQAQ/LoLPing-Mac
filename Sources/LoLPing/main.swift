@@ -2,6 +2,10 @@ import AppKit
 import AVFoundation
 import PingCore
 
+if let index = CommandLine.arguments.firstIndex(of: "--feature-check"), CommandLine.arguments.count > index+1 {
+    exit(FeatureChecks.run(endpoint: CommandLine.arguments[index+1]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--visual-check"), CommandLine.arguments.count > index+1 {
     do { try VisualChecks.run(to: URL(fileURLWithPath: CommandLine.arguments[index+1])); exit(0) }
     catch { print("Visual check failed: \(error)"); exit(1) }

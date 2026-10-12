@@ -15,6 +15,18 @@ final class AppModel: ObservableObject {
     @Published var scale: Double {
         didSet { defaults.set(scale, forKey: "effectScale"); restartInputIfNeeded() }
     }
+    @Published var relayEnabled: Bool {
+        didSet {
+            defaults.set(relayEnabled, forKey: "relayEnabled")
+            if relayEnabled {
+                if lanEnabled { lanEnabled = false }
+            } else {
+                relay.disconnect(); clearTeammateEffects()
+            }
+            onStateChange?()
+        }
+    }
+    private var editingShortcut = false
     @Published private(set) var previewKind: PingKind = .missing
     @Published private(set) var previewToken = UUID()
     @Published private(set) var previewVisible = false
@@ -22,7 +34,7 @@ final class AppModel: ObservableObject {
     @Published var lanEnabled: Bool {
         didSet {
             defaults.set(lanEnabled, forKey: "lanEnabled")
-            if lanEnabled { relay.disconnect() }
+            if lanEnabled { relayEnabled = false }
             restartLAN()
         }
     }
@@ -65,6 +77,7 @@ final class AppModel: ObservableObject {
         volume = defaults.object(forKey: "volume") == nil ? 0.55 : min(max(defaults.double(forKey: "volume"), 0), 1)
         scale = defaults.object(forKey: "effectScale") == nil ? 1 : min(max(defaults.double(forKey: "effectScale"), 0.75), 1.5)
         lanEnabled = defaults.bool(forKey: "lanEnabled")
+        relayEnabled = !defaults.bool(forKey: "lanEnabled") && defaults.bool(forKey: "relayEnabled")
         lanMuteTeammates = defaults.bool(forKey: "lanMuteTeammates")
         let savedName = LANProtocol.sanitizeName(defaults.string(forKey: "lanNickname") ?? "")
         lanNickname = savedName.isEmpty ? AppModel.defaultNickname : savedName
@@ -137,7 +150,7 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            try input.start(chord: chord, scale: scale)
+            if !editingShortcut { try input.start(chord: chord, scale: scale) }
             isEnabled = true; awaitingPermission = false
             permissionTimer?.invalidate(); permissionTimer = nil
             defaults.set(true, forKey: "enabled")
@@ -184,12 +197,12 @@ final class AppModel: ObservableObject {
 
     // MARK: 服务器联机
 
-    func createRelayRoom() { lanEnabled = false; relay.createRoom() }
-    func joinRelayRoom() { lanEnabled = false; relay.joinRoom() }
+    func createRelayRoom() { guard relayEnabled else { return }; relay.createRoom() }
+    func joinRelayRoom() { guard relayEnabled else { return }; relay.joinRoom() }
     func leaveRelayRoom() { relay.disconnect(); clearTeammateEffects() }
-    func sendRelayTest() { relay.sendPing(.generic) }
+    func sendRelayTest() { guard relayEnabled else { return }; relay.sendPing(.generic) }
     private func showRemotePing(_ kind: PingKind, sender: String) {
-        guard relay.receiveEnabled, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        guard relayEnabled, relay.receiveEnabled, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let center = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
         overlay.showPing(kind, at: center, scale: scale, label: sender, teammate: true)
         if !relay.muteTeammates { teammateSound.play(kind, volume: volume) }
@@ -281,7 +294,7 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now()+4, execute: cleanup)
     }
     private func sendToTeammates(_ kind: PingKind, at anchor: CGPoint) {
-        if relay.isActive { relay.sendPing(kind); return }
+        if relayEnabled && relay.isActive { relay.sendPing(kind); return }
         guard lanEnabled, !lanRoomCode.isEmpty else { return }
         let frames = NSScreen.screens.map(\.frame)
         guard let frame = LANGeometry.screenIndex(containing: anchor, in: frames).map({ frames[$0] }) ?? NSScreen.main?.frame else { return }
@@ -303,8 +316,14 @@ final class AppModel: ObservableObject {
     }
     private func restartInputIfNeeded() {
         cancelEffects()
-        if isEnabled { setEnabled(true) }
+        if isEnabled && !editingShortcut { setEnabled(true) }
         onStateChange?()
+    }
+    func beginShortcutEditing() {
+        editingShortcut = true; input.stop(); cancelEffects()
+    }
+    func endShortcutEditing() {
+        editingShortcut = false; restartInputIfNeeded()
     }
     private func handle(_ action: GestureMachine.Action) {
         guard isEnabled else { return }

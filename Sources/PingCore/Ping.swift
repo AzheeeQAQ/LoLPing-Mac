@@ -46,7 +46,7 @@ public enum PingKind: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-public struct Modifiers: OptionSet, Equatable {
+public struct Modifiers: OptionSet, Hashable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
     public static let control = Modifiers(rawValue: 1)
@@ -55,30 +55,58 @@ public struct Modifiers: OptionSet, Equatable {
     public static let shift = Modifiers(rawValue: 8)
 }
 
-public enum TriggerChord: String, CaseIterable, Identifiable {
-    case controlOptionCommand, controlOptionShift, controlCommandShift
+public struct TriggerChord: RawRepresentable, Hashable, Identifiable {
+    public let modifiers: Modifiers
+    public let keyCode: Int?
     public var id: String { rawValue }
-    public var title: String {
-        switch self {
-        case .controlOptionCommand: return "⌃ ⌥ ⌘  Control + Option + Command"
-        case .controlOptionShift: return "⌃ ⌥ ⇧  Control + Option + Shift"
-        case .controlCommandShift: return "⌃ ⌘ ⇧  Control + Command + Shift"
+    public static let controlOptionCommand = TriggerChord(modifiers: [.control, .option, .command])!
+    public static let controlOptionShift = TriggerChord(modifiers: [.control, .option, .shift])!
+    public static let controlCommandShift = TriggerChord(modifiers: [.control, .command, .shift])!
+    public static let allCases = [controlOptionCommand, controlOptionShift, controlCommandShift]
+    /// Only modifier combinations, or a modifier plus a supported physical key.
+    /// Escape stays available to cancel a gesture.
+    public init?(modifiers: Modifiers, keyCode: Int? = nil) {
+        guard modifiers.rawValue > 0, modifiers.rawValue & ~15 == 0 else { return nil }
+        if let keyCode {
+            guard Self.availableKeys.contains(where: { $0.code == keyCode }) else { return nil }
+        } else if modifiers.rawValue.nonzeroBitCount < 2 { return nil }
+        self.modifiers = modifiers; self.keyCode = keyCode
+    }
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "controlOptionCommand": self = .controlOptionCommand
+        case "controlOptionShift": self = .controlOptionShift
+        case "controlCommandShift": self = .controlCommandShift
+        default:
+            let fields = rawValue.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 3, fields[0] == "v1", let bits = Int(fields[1]),
+                  fields[2] == "-" || Int(fields[2]) != nil,
+                  let chord = TriggerChord(modifiers: Modifiers(rawValue: bits), keyCode: Int(fields[2])) else { return nil }
+            self = chord
         }
     }
+    public var rawValue: String { "v1:\(modifiers.rawValue):\(keyCode.map(String.init) ?? "-")" }
+    public var title: String { symbols }
     public var symbols: String {
-        switch self {
-        case .controlOptionCommand: return "⌃  ⌥  ⌘"
-        case .controlOptionShift: return "⌃  ⌥  ⇧"
-        case .controlCommandShift: return "⌃  ⌘  ⇧"
+        var parts: [String] = []
+        for (modifier, symbol) in [(Modifiers.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")] {
+            if modifiers.contains(modifier) { parts.append(symbol) }
         }
+        if let keyCode, let key = Self.availableKeys.first(where: { $0.code == keyCode }) { parts.append(key.title) }
+        return parts.joined(separator: "  ")
     }
-    public var modifiers: Modifiers {
-        switch self {
-        case .controlOptionCommand: return [.control, .option, .command]
-        case .controlOptionShift: return [.control, .option, .shift]
-        case .controlCommandShift: return [.control, .command, .shift]
-        }
-    }
+    public static let availableKeys: [(code: Int, title: String)] = [
+        (0,"A"),(11,"B"),(8,"C"),(2,"D"),(14,"E"),(3,"F"),(5,"G"),(4,"H"),(34,"I"),
+        (38,"J"),(40,"K"),(37,"L"),(46,"M"),(45,"N"),(31,"O"),(35,"P"),(12,"Q"),
+        (15,"R"),(1,"S"),(17,"T"),(32,"U"),(9,"V"),(13,"W"),(7,"X"),(16,"Y"),(6,"Z"),
+        (29,"0"),(18,"1"),(19,"2"),(20,"3"),(21,"4"),(23,"5"),(22,"6"),(26,"7"),(28,"8"),(25,"9"),
+        (49,"Space"),(48,"Tab"),(36,"Return"),(51,"Delete"),
+        (27,"−"),(24,"="),(33,"["),(30,"]"),(42,"\\"),(41,";"),(39,"'"),(43,","),(47,"."),(44,"/"),(50,"`"),
+        (123,"←"),(124,"→"),(125,"↓"),(126,"↑"),(115,"Home"),(119,"End"),(116,"Page Up"),(121,"Page Down"),
+        (122,"F1"),(120,"F2"),(99,"F3"),(118,"F4"),(96,"F5"),(97,"F6"),(98,"F7"),(100,"F8"),
+        (101,"F9"),(109,"F10"),(103,"F11"),(111,"F12"),(105,"F13"),(107,"F14"),(113,"F15"),
+        (106,"F16"),(64,"F17"),(79,"F18"),(80,"F19"),(90,"F20")
+    ]
 }
 
 public enum WheelGeometry {

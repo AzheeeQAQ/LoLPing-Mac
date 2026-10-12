@@ -11,6 +11,7 @@ public final class GestureMachine {
     public private(set) var selected: PingKind = .generic
     public private(set) var anchor: CGPoint = .zero
     public private(set) var currentModifiers: Modifiers = []
+    public private(set) var triggerKeyDown = false
     public var chord: TriggerChord = .controlOptionCommand
     public var deadZone: CGFloat = WheelGeometry.centerRadius
     private var center: CGPoint = .zero
@@ -19,29 +20,40 @@ public final class GestureMachine {
 
     public func flagsChanged(_ flags: Modifiers, at point: CGPoint, otherInputHeld: Bool) -> [Action] {
         currentModifiers = flags
+        return update(at: point, otherInputHeld: otherInputHeld, allowArm: chord.keyCode == nil)
+    }
+    public func keyChanged(isDown: Bool, at point: CGPoint, otherInputHeld: Bool) -> [Action] {
+        guard chord.keyCode != nil else { return [] }
+        triggerKeyDown = isDown
+        return update(at: point, otherInputHeld: otherInputHeld, allowArm: isDown)
+    }
+    private var triggerHeld: Bool { currentModifiers == chord.modifiers && (chord.keyCode == nil || triggerKeyDown) }
+    private var fullyReleased: Bool { currentModifiers.intersection(chord.modifiers).isEmpty && !triggerKeyDown }
+    private func update(at point: CGPoint, otherInputHeld: Bool, allowArm: Bool) -> [Action] {
+        let flags = currentModifiers
         if phase == .blocked {
-            if flags.intersection(chord.modifiers).isEmpty { phase = .idle }
+            if fullyReleased { phase = .idle }
             return []
         }
         if phase == .idle {
-            guard flags == chord.modifiers else { return [] }
+            guard allowArm, triggerHeld else { return [] }
             guard !otherInputHeld else { phase = .blocked; return [] }
             anchor = point; center = point; pointer = point; selected = .generic
             phase = .arming
             return [.arm(point)]
         }
-        // Adding a fourth modifier is a different shortcut, never a commit.
+        // Adding an unconfigured modifier cancels instead of committing.
         if !flags.subtracting(chord.modifiers).isEmpty { return cancel() }
-        if flags != chord.modifiers {
+        if !triggerHeld {
             let wasOpen = phase == .open
-            phase = flags.intersection(chord.modifiers).isEmpty ? .idle : .blocked
+            phase = fullyReleased ? .idle : .blocked
             return wasOpen ? [.dismiss, .commit(selected, anchor)] : [.hide]
         }
         return []
     }
 
     public func delayElapsed() -> [Action] {
-        guard phase == .arming, currentModifiers == chord.modifiers else { return [] }
+        guard phase == .arming, triggerHeld else { return [] }
         phase = .open
         return [.show(anchor)]
     }
@@ -63,7 +75,7 @@ public final class GestureMachine {
 
     public func cancel() -> [Action] {
         let hadGesture = phase == .arming || phase == .open
-        phase = currentModifiers.intersection(chord.modifiers).isEmpty ? .idle : .blocked
+        phase = fullyReleased ? .idle : .blocked
         selected = .generic
         return hadGesture ? [.hide] : []
     }
@@ -72,5 +84,6 @@ public final class GestureMachine {
         phase = blockUntilRelease ? .blocked : .idle
         selected = .generic
         currentModifiers = []
+        triggerKeyDown = false
     }
 }

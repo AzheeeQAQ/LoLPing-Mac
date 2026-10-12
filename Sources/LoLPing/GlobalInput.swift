@@ -43,7 +43,7 @@ final class GlobalInput {
         let callback: CGEventTapCallBack = { _, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
             let input = Unmanaged<GlobalInput>.fromOpaque(context).takeUnretainedValue()
-            return input.receive(type, event) ? nil : Unmanaged.passUnretained(event)
+            return input.process(type, event) ? nil : Unmanaged.passUnretained(event)
         }
         guard let newTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                             options: .defaultTap, eventsOfInterest: mask, callback: callback,
@@ -83,7 +83,8 @@ final class GlobalInput {
         let mainTop = NSScreen.screens.first?.frame.maxY ?? 0
         return CGPoint(x: event.location.x, y: mainTop-event.location.y)
     }
-    private func receive(_ type: CGEventType, _ event: CGEvent) -> Bool {
+    /// Routes an event; diagnostics may pass unposted events without an event tap.
+    func process(_ type: CGEventType, _ event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             cancelCurrent()
             recoveryAttempts += 1
@@ -98,14 +99,26 @@ final class GlobalInput {
             dispatch(machine.flagsChanged(Self.modifiers(event.flags), at: point(event), otherInputHeld: held))
         case .keyDown:
             let key = event.getIntegerValueField(.keyboardEventKeycode)
+            let repeated = keysDown.contains(key)
+            let otherHeld = NSEvent.pressedMouseButtons != 0 || !keysDown.subtracting([key]).isEmpty
             keysDown.insert(key)
-            let active = machine.phase == .arming || machine.phase == .open
             if swallowedKeys.contains(key) { return true }
+            if machine.chord.keyCode == Int(key) {
+                guard !repeated else { return false }
+                dispatch(machine.flagsChanged(Self.modifiers(event.flags), at: point(event), otherInputHeld: otherHeld))
+                dispatch(machine.keyChanged(isDown: true, at: point(event), otherInputHeld: otherHeld))
+                if machine.phase == .arming || machine.phase == .open { swallowedKeys.insert(key); return true }
+                return false
+            }
+            let active = machine.phase == .arming || machine.phase == .open
             cancelCurrent()
             if active && key == 53 { swallowedKeys.insert(key); return true }
         case .keyUp:
             let key = event.getIntegerValueField(.keyboardEventKeycode)
             keysDown.remove(key)
+            if machine.chord.keyCode == Int(key) {
+                dispatch(machine.keyChanged(isDown: false, at: point(event), otherInputHeld: !keysDown.isEmpty))
+            }
             if swallowedKeys.remove(key) != nil { return true }
         case .mouseMoved:
             dispatch(machine.moved(to: point(event)))

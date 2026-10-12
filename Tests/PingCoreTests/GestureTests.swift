@@ -123,6 +123,76 @@ final class GestureTests {
             XCTAssertEqual(machine.flagsChanged([], at: anchor, otherInputHeld: false), [.dismiss, .commit(.generic, anchor)])
         }
     }
+    func testCustomChordValidationAndMigration() {
+        for old in ["controlOptionCommand", "controlOptionShift", "controlCommandShift"] {
+            let migrated = TriggerChord(rawValue: old)!
+            XCTAssertEqual(TriggerChord(rawValue: migrated.rawValue), migrated)
+        }
+        for bits in 0...15 {
+            let mods = Modifiers(rawValue: bits)
+            XCTAssertEqual(TriggerChord(modifiers: mods) != nil, bits.nonzeroBitCount >= 2)
+            for key in TriggerChord.availableKeys {
+                let chord = TriggerChord(modifiers: mods, keyCode: key.code)
+                XCTAssertEqual(chord != nil, bits != 0)
+                if let chord { XCTAssertEqual(TriggerChord(rawValue: chord.rawValue), chord) }
+            }
+        }
+        for invalid in ["v1:0:-", "v1:1:-", "v1:16:0", "v1:7:53", "v1:7:999", "v1:7:no", "v1:7:", "v2:7:0", "garbage"] {
+            XCTAssertEqual(TriggerChord(rawValue: invalid), nil)
+        }
+    }
+    func testCustomKeysCommitOnceInEitherReleaseOrder() {
+        for bits in 1...15 {
+            for key in TriggerChord.availableKeys {
+                for keyReleasedFirst in [true, false] {
+                    let machine = GestureMachine()
+                    machine.chord = TriggerChord(modifiers: Modifiers(rawValue: bits), keyCode: key.code)!
+                    XCTAssertEqual(machine.flagsChanged(machine.chord.modifiers, at: anchor, otherInputHeld: false), [])
+                    XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [.arm(anchor)])
+                    XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [])
+                    XCTAssertEqual(machine.delayElapsed(), [.show(anchor)])
+                    var actions: [GestureMachine.Action] = []
+                    if keyReleasedFirst {
+                        actions += machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false)
+                        XCTAssertEqual(machine.phase, .blocked)
+                        XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [])
+                        actions += machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false)
+                        actions += machine.flagsChanged([], at: anchor, otherInputHeld: false)
+                    } else {
+                        actions += machine.flagsChanged([], at: anchor, otherInputHeld: false)
+                        XCTAssertEqual(machine.phase, .blocked)
+                        actions += machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false)
+                    }
+                    XCTAssertEqual(actions, [.dismiss, .commit(.generic, anchor)])
+                    XCTAssertEqual(machine.phase, .idle)
+                    XCTAssertEqual(machine.delayElapsed(), [])
+                }
+            }
+        }
+    }
+    func testKeyShortcutCancellationAndKeyFirst() {
+        let machine = GestureMachine()
+        machine.chord = TriggerChord(modifiers: [.option], keyCode: 49)!
+        XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [])
+        XCTAssertEqual(machine.flagsChanged([.option], at: anchor, otherInputHeld: true), [])
+        XCTAssertEqual(machine.delayElapsed(), [])
+        _ = machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false)
+        XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [.arm(anchor)])
+        XCTAssertEqual(machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false), [.hide])
+        XCTAssertEqual(machine.delayElapsed(), [])
+        _ = machine.flagsChanged([], at: anchor, otherInputHeld: false)
+        _ = machine.flagsChanged([.option], at: anchor, otherInputHeld: false)
+        _ = machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false)
+        _ = machine.delayElapsed()
+        XCTAssertEqual(machine.flagsChanged([.option, .shift], at: anchor, otherInputHeld: false), [.hide])
+        XCTAssertEqual(machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false), [])
+        _ = machine.flagsChanged([], at: anchor, otherInputHeld: false)
+        XCTAssertEqual(machine.phase, .idle)
+        _ = machine.flagsChanged([.option], at: anchor, otherInputHeld: false)
+        XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: true), [])
+        XCTAssertEqual(machine.phase, .blocked)
+        XCTAssertEqual(machine.delayElapsed(), [])
+    }
     func testContinuousDirectionAndCenterReset() {
         let machine = GestureMachine(); open(machine)
         let first = CGPoint(x: 600, y: 500), second = CGPoint(x: 610, y: 500)
@@ -161,6 +231,9 @@ enum Checks {
             ("外接屏坐标与贴边落点", test.testEdgeClampingPreservesActualPingLocation),
             ("延迟期间的鼠标移动", test.testMovementDuringArmingAppliedAfterWheelOpens),
             ("三种可选组合键", test.testEveryConfigurableChord),
+            ("自定义组合键校验与旧设置迁移", test.testCustomChordValidationAndMigration),
+            ("所有自定义按键与松键顺序只发送一次", test.testCustomKeysCommitOnceInEitherReleaseOrder),
+            ("普通按键先按、短按及取消不误发", test.testKeyShortcutCancellationAndKeyFirst),
             ("同扇区方向更新与中央复位", test.testContinuousDirectionAndCenterReset),
             ("缩放后中心判定与圆圈一致", test.testScaledCenterMatchesVisualCircle),
             ("局域网：房间码哈希与规范化", lan.testRoomHashAndNormalization),

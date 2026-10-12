@@ -13,6 +13,7 @@ struct ControlView: View {
     @ObservedObject var model: AppModel
     private enum LANField: Hashable { case nickname, room }
     @FocusState private var focusedField: LANField?
+    @State private var editingShortcut = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -74,9 +75,8 @@ struct ControlView: View {
             HStack {
                 Label("触发组合键", systemImage: "keyboard").font(.system(size: 12))
                 Spacer()
-                Picker("触发组合键", selection: $model.chord) {
-                    ForEach(TriggerChord.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden().frame(width: 320).accessibilityLabel("触发组合键")
+                Text(model.chord.symbols).font(.system(size: 14, weight: .medium)).accessibilityLabel("当前组合键 \(model.chord.symbols)")
+                Button("自定义…") { editingShortcut = true }.buttonStyle(.bordered).controlSize(.small)
             }
             HStack(spacing: 28) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -97,6 +97,7 @@ struct ControlView: View {
             Text("按住 0.18 秒 → 移动选择 → 松开发送　 ·　 Esc / 右键取消")
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }.padding(16).card()
+            .sheet(isPresented: $editingShortcut) { ShortcutEditor(model: model) }
     }
     private var lanCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -213,6 +214,8 @@ private struct RelayControlView: View {
                 Text("服务器联机").font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Text("不同网络也能互发信号").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                Toggle("开启服务器联机", isOn: $model.relayEnabled)
+                    .labelsHidden().toggleStyle(.switch).accessibilityLabel("开启服务器联机")
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text("服务器地址").font(.system(size: 11)).foregroundStyle(Palette.secondary)
@@ -232,8 +235,8 @@ private struct RelayControlView: View {
                 }
             }.disabled(relay.isActive)
             HStack(spacing: 10) {
-                Button("创建房间") { model.createRelayRoom() }.buttonStyle(.borderedProminent).disabled(relay.isActive)
-                Button("加入房间") { model.joinRelayRoom() }.buttonStyle(.bordered).disabled(relay.isActive)
+                Button("创建房间") { model.createRelayRoom() }.buttonStyle(.borderedProminent).disabled(!model.relayEnabled || relay.isActive)
+                Button("加入房间") { model.joinRelayRoom() }.buttonStyle(.bordered).disabled(!model.relayEnabled || relay.isActive)
                 if !relay.room.isEmpty {
                     Button("复制房间码") {
                         NSPasteboard.general.clearContents()
@@ -245,14 +248,15 @@ private struct RelayControlView: View {
             }.controlSize(.small)
             HStack(spacing: 6) {
                 Circle().fill(relay.state == .connected ? Color.green : Palette.secondary).frame(width: 7, height: 7)
-                Text(relay.status).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("relayStatus")
+                Text(model.relayEnabled ? relay.status : "未开启 · 打开开关后创建或加入房间")
+                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("relayStatus")
             }.font(.system(size: 11)).foregroundStyle(Palette.secondary)
             HStack(spacing: 12) {
                 Toggle("接收朋友信号", isOn: $relay.receiveEnabled).toggleStyle(.checkbox)
                 Toggle("静音朋友", isOn: $relay.muteTeammates).toggleStyle(.checkbox)
                 Spacer()
                 Button("发送测试信号") { model.sendRelayTest() }.buttonStyle(.bordered).controlSize(.small)
-                    .disabled(!relay.canSend).accessibilityLabel("发送服务器测试信号")
+                    .disabled(!model.relayEnabled || !relay.canSend).accessibilityLabel("发送服务器测试信号")
             }.font(.system(size: 11))
             Text("两人填写同一服务器地址，一人创建房间，另一人输入房间码加入。朋友的信号显示在主屏幕中央；只接收无需辅助功能权限。服务器联机和局域网联机切换使用。")
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true)

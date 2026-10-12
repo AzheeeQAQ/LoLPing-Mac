@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lanItem: NSMenuItem!
     private var muteItem: NSMenuItem!
     private var relayStateItem: NSMenuItem!
+    private var relayItem: NSMenuItem!
     private var leaveRelayItem: NSMenuItem!
     let model = AppModel()
 
@@ -47,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func toggleEnabled() { model.setEnabled(!(model.isEnabled || model.awaitingPermission)) }
     @objc private func toggleLAN() { model.lanEnabled.toggle() }
+    @objc private func toggleRelay() { model.relayEnabled.toggle() }
     @objc private func toggleMuteTeammates() { model.lanMuteTeammates.toggle() }
     @objc private func leaveRelay() { model.leaveRelayRoom() }
     @objc private func quit() { NSApp.terminate(nil) }
@@ -74,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(.separator())
         relayStateItem = NSMenuItem(title: "服务器：未连接", action: nil, keyEquivalent: "")
         menu.addItem(relayStateItem)
+        relayItem = NSMenuItem(title: "服务器联机", action: #selector(toggleRelay), keyEquivalent: "")
+        relayItem.target = self; menu.addItem(relayItem)
         leaveRelayItem = NSMenuItem(title: "离开服务器房间", action: #selector(leaveRelay), keyEquivalent: "")
         leaveRelayItem.target = self; menu.addItem(leaveRelayItem)
         menu.addItem(.separator())
@@ -101,7 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lanPeersItem.isHidden = model.lanMenuPeers == nil
         lanItem.state = model.lanEnabled ? .on : .off
         muteItem.state = model.lanMuteTeammates ? .on : .off
-        relayStateItem.title = "服务器：\(model.relay.status)"
+        relayStateItem.title = model.relayEnabled ? "服务器：\(model.relay.status)" : "服务器：未开启"
+        relayItem.state = model.relayEnabled ? .on : .off
         leaveRelayItem.isEnabled = model.relay.isActive
     }
 }
