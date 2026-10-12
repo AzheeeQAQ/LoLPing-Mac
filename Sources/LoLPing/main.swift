@@ -22,6 +22,10 @@ if CommandLine.arguments.contains("--check-assets") {
 }
 
 // Headless LAN diagnostics: no event tap, menu bar item or window.
+if let index = CommandLine.arguments.firstIndex(of: "--relay-check"), CommandLine.arguments.count > index+1 {
+    exit(RelayChecks.run(endpoint: CommandLine.arguments[index+1]))
+}
+
 if CommandLine.arguments.contains("--lan-listen") || CommandLine.arguments.contains("--lan-send") {
     LANCommandLine.run(CommandLine.arguments)
 }

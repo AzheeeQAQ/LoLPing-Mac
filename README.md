@@ -1,61 +1,53 @@
-# LoLPing Mac · 局域网互发版
+# LoLPing Mac 1.3.0 · 服务器联机版
 
-在同一 Wi-Fi 下和朋友互发桌面 Ping 信号。
+在 Mac 桌面发送和接收 Ping。支持同一 Wi-Fi 的局域网直连，以及不同网络之间的服务器房间联机。
 
-## 下载和安装
+本版基于仓库最新的局域网源码 `405135d`，合并“实现 LoLPing-Mac 跨电脑联动”中的 WebSocket 房间中继方案。客户端要求 macOS 13 或更新版本，安装包同时支持 Apple 芯片和 Intel。
 
-- [下载 LoLPing-LAN-v1.2.0.zip](https://github.com/AzheeeQAQ/LoLPing-Mac/raw/refs/tags/v1.2.0-lan/downloads/LoLPing-LAN-v1.2.0.zip)
-- [版本 v1.2.0-lan](https://github.com/AzheeeQAQ/LoLPing-Mac/tree/v1.2.0-lan)
-- [完整使用说明](docs/使用说明.txt)
+## 跨网络联机
 
-适用于 macOS 13 或更新版本，同时包含 Apple 芯片（arm64）和 Intel（x86_64）版本。应用版本为 1.2.0，构建号为 3。
+1. 先按 [服务器部署说明](relay/README.md) 部署中继。
+2. 双方安装 **1.3.0 服务器联机版**，填写相同的服务器地址，例如 `wss://ping.example.com/ws`，并填写各自昵称。
+3. 一人点击“创建房间”，将 12 位房间码分享给朋友；另一人输入房间码后点击“加入房间”。
+4. 显示“已连接：朋友的名字”后，点击“发送测试信号”检查连接。
+5. 使用快捷键发送时，开启“启用 Ping”并允许辅助功能，按住 Control + Option + Command，移动选择信号后松开。
 
-1. 下载并完整解压 ZIP。
-2. 双击 `LoLPing-LAN/install.command`，安装程序会把 App 复制到“应用程序”并打开。
-3. 如安装脚本无法打开，可在终端运行 `zsh` 加一个空格，然后把 `install.command` 拖入终端并按回车。
-4. 首次使用时允许本地网络访问；发送自己的 Ping 还需在“系统设置 → 隐私与安全性 → 辅助功能”中开启 LoLPing。
+朋友的信号在接收者主屏幕中央显示，并带上发送者名字。只接收信号不需要辅助功能权限。“接收朋友信号”和“静音朋友”可分别控制显示与音效；关闭本机 Ping 不会关闭接收。
 
-## 和朋友联机
+服务器联机和局域网联机切换使用，避免同一条信号被重复发送。局域网仍使用原来的 4–8 位房间码和相对屏幕坐标；服务器房间使用中继生成的 12 位房间码。
 
-双方连接同一 Wi-Fi，打开“局域网联机”，填写相同的房间码和各自的昵称。状态显示“在线：朋友的名字”后即可互发信号。发送信号时，按住 Control + Option + Command，移动鼠标选择信号后松开。
+## 服务器部署
 
-信号在同一局域网内直接传输。只接收朋友的信号不需要辅助功能权限。访客网、校园网等网络可能禁止设备互访。
-
-## 文件校验
-
-发布包保留了提供的原始 ZIP，其可执行文件与已安装版本一致。下载后可运行：
+服务器使用 Node.js WebSocket 中继，Docker Compose 配套 Caddy 申请 HTTPS 证书。详见 [relay/README.md](relay/README.md)。服务器运行中继，桌面动画与音效由两台 Mac 本地显示、播放。
 
 ```sh
-shasum -a 256 LoLPing-LAN-v1.2.0.zip
+cd relay
+cp .env.example .env
+# 将 .env 中的 PING_DOMAIN 修改成已解析到服务器的真实域名。
+docker compose up -d --build
 ```
 
-预期 SHA-256：
+已有 Nginx/Caddy 的服务器使用 `compose.proxy.yaml`，中继只绑定服务器的 `127.0.0.1:8787`，不会抢占 80/443。
 
-```text
-46eca8b8816b99ff145e8f0675b4fff99d24874b1d9862ce860265c8f31f35cc
-```
+## 构建与验证
 
-也可在仓库根目录运行 `shasum -a 256 -c SHA256SUMS`，校验仓库 `downloads` 目录中的安装包。
-
-## 源码与构建
-
-源码就在本仓库，基于 [AllenTHT/LoLPing-Mac](https://github.com/AllenTHT/LoLPing-Mac) v1.1.0，增加了局域网互发功能。`downloads/` 里的安装包就是用这份源码通过 `scripts/package.sh` 构建的。
-
-需要 macOS 13 或更新版本，以及 Swift 命令行工具（不需要完整 Xcode）。
+Mac 客户端需要 Swift 命令行工具。服务器需要 Node.js 22 或更新版本，Docker 镜像使用 Node.js 24。
 
 ```sh
-zsh scripts/build.sh      # 构建并本地签名 dist/LoLPing.app
-zsh scripts/test.sh       # 运行 PingCoreChecks 测试
-zsh scripts/package.sh    # 构建 arm64 + x86_64 通用版，打包成 dist/LoLPing-LAN-v1.2.0.zip
+zsh scripts/test.sh       # 手势、局域网和服务器协议检查
+zsh scripts/build.sh      # 构建 dist/LoLPing.app
+cd relay
+npm ci --ignore-scripts
+npm test                 # 中继服务测试
+npm run test:swift       # 真实生产版 Swift 客户端集成检查
+cd ..
+zsh scripts/package.sh   # 通用安装包：dist/LoLPing-v1.3.0-server-macOS-universal.zip
 ```
 
-- 构建脚本带了 `--build-system native`。在部分新版本 Swift 工具链上，默认的 swiftbuild 会报 "Unknown error parsing property list"。
-- 局域网实现：Network.framework，Bonjour 服务 `_lolping._udp`，UDP 单播，不经过服务器。代码在 `Sources/LoLPing/LANSession.swift`，协议、坐标换算和限流在 `Sources/PingCore/LAN.swift`。
-- 可以在终端里测试联机，不用打开界面：
+源码包括 `Sources/LoLPing/RelayClient.swift`、`Sources/PingCore/RelayProtocol.swift` 及整个 `relay/` 目录。网络中只转发信号类型、事件 ID 和发送者，不同步桌面、鼠标位置或按键内容。中继只在内存中保存房间；重启后需重新创建房间，断线期间的信号不补播。房间最多两人，掉线成员席位保留 60 秒。
 
-  ```sh
-  dist/LoLPing.app/Contents/MacOS/LoLPing --lan-listen --room 9137 --seconds 20
-  dist/LoLPing.app/Contents/MacOS/LoLPing --lan-send --room 9137 --kind retreat --nx 0.25 --ny 0.75
-  ```
+## 旧版局域网安装包
 
-本工具非 Riot 官方产品，游戏素材归 Riot Games 所有。
+[LoLPing-LAN-v1.2.0.zip](https://github.com/AzheeeQAQ/LoLPing-Mac/raw/refs/tags/v1.2.0-lan/downloads/LoLPing-LAN-v1.2.0.zip) 是旧版，仅支持局域网。根目录 `SHA256SUMS` 对应这个保留的旧版文件。服务器联机需要使用新构建的 1.3.0 客户端。
+
+原始桌面工具基于 [AllenTHT/LoLPing-Mac](https://github.com/AllenTHT/LoLPing-Mac)。本工具非 Riot 官方产品，游戏素材归 Riot Games 所有。

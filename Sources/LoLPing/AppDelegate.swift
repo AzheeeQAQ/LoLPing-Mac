@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lanPeersItem: NSMenuItem!
     private var lanItem: NSMenuItem!
     private var muteItem: NSMenuItem!
+    private var relayStateItem: NSMenuItem!
+    private var leaveRelayItem: NSMenuItem!
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleEnabled() { model.setEnabled(!(model.isEnabled || model.awaitingPermission)) }
     @objc private func toggleLAN() { model.lanEnabled.toggle() }
     @objc private func toggleMuteTeammates() { model.lanMuteTeammates.toggle() }
+    @objc private func leaveRelay() { model.leaveRelayRoom() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func buildMainMenu() {
@@ -68,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         enableItem = NSMenuItem(title: "启用 Ping", action: #selector(toggleEnabled), keyEquivalent: "")
         enableItem.target = self; menu.addItem(enableItem)
         menu.addItem(withTitle: "打开控制窗口…", action: #selector(showWindow), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        relayStateItem = NSMenuItem(title: "服务器：未连接", action: nil, keyEquivalent: "")
+        menu.addItem(relayStateItem)
+        leaveRelayItem = NSMenuItem(title: "离开服务器房间", action: #selector(leaveRelay), keyEquivalent: "")
+        leaveRelayItem.target = self; menu.addItem(leaveRelayItem)
         menu.addItem(.separator())
         lanStateItem = NSMenuItem(title: "局域网：未开启", action: nil, keyEquivalent: "")
         menu.addItem(lanStateItem)
@@ -93,5 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         lanPeersItem.isHidden = model.lanMenuPeers == nil
         lanItem.state = model.lanEnabled ? .on : .off
         muteItem.state = model.lanMuteTeammates ? .on : .off
+        relayStateItem.title = "服务器：\(model.relay.status)"
+        leaveRelayItem.isEnabled = model.relay.isActive
     }
 }

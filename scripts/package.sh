@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Universal (Apple Silicon + Intel) release build, packaged with a one-click
-# installer for friends: dist/LoLPing-LAN-v<version>.zip
+# installer for friends: dist/LoLPing-v<version>-server-macOS-universal.zip
 set -euo pipefail
 cd "${0:A:h:h}"
 mkdir -p .build/module-cache .build/cache .build/config .build/security .build/package
@@ -34,8 +34,8 @@ codesign --force --sign - --identifier local.allentu.LoLPing "$APP"
 codesign --verify --deep --strict "$APP"
 "$APP/Contents/MacOS/LoLPing" --check-assets
 
-KIT="$PWD/dist/LoLPing-LAN"
-ZIP="$PWD/dist/LoLPing-LAN-v$VERSION.zip"
+KIT="$PWD/dist/LoLPing-Server"
+ZIP="$PWD/dist/LoLPing-v$VERSION-server-macOS-universal.zip"
 rm -rf "$KIT" "$ZIP"
 mkdir -p "$KIT"
 ditto "$APP" "$KIT/LoLPing.app"

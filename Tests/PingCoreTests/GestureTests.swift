@@ -147,6 +147,7 @@ enum Checks {
     static func main() {
         let test = GestureTests()
         let lan = LANTests()
+        let relay = RelayTests()
         let scenarios: [(String, () -> Void)] = [
             ("八向选择与中央区域", test.testEightDirectionsAndCentralDeadZone),
             ("短按不触发", test.testShortPressNeverPingsAndLateTimerDoesNothing),
@@ -169,7 +170,9 @@ enum Checks {
             ("局域网：序号去重与乱序", lan.testSequenceDedupe),
             ("局域网：在线状态", lan.testPresence),
             ("局域网：发送频率限制", lan.testRateLimiter),
-            ("局域网：多屏相对坐标与边缘收拢", lan.testCoordinates)
+            ("局域网：多屏相对坐标与边缘收拢", lan.testCoordinates),
+            ("服务器：地址校验与房间码", relay.testEndpointAndRoom),
+            ("服务器：昵称与信号编解码", relay.testNameAndMessages)
         ]
         for (name, scenario) in scenarios {
             let before = failures

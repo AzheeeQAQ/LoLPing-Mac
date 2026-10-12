@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-public enum PingKind: String, CaseIterable, Identifiable {
+public enum PingKind: String, CaseIterable, Identifiable, Codable {
     case retreat, push, onMyWay, allIn, assist, needVision, missing, enemyVision, generic
     public var id: String { rawValue }
     public static let wheel: [PingKind] = [.retreat, .push, .onMyWay, .allIn, .assist, .needVision, .missing, .enemyVision]

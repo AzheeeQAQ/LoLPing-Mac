@@ -19,6 +19,7 @@ struct ControlView: View {
                 header
                 statusCard
                 settingsCard
+                RelayControlView(model: model, relay: model.relay)
                 lanCard
                 previewCard
                 footer
@@ -199,6 +200,63 @@ struct ControlView: View {
             Text("独立桌面工具，非 Riot 官方产品。游戏素材归 Riot Games 所有；社区音效尚未核实为官方原声。")
                 .font(.system(size: 9)).foregroundStyle(Palette.secondary.opacity(0.7)).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+private struct RelayControlView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var relay: RelayClient
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "globe").foregroundStyle(Palette.gold)
+                Text("服务器联机").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text("不同网络也能互发信号").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Text("服务器地址").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                TextField("wss://ping.example.com/ws", text: $relay.serverAddress)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("服务器地址").disabled(relay.isActive)
+            }
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("昵称").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    TextField("朋友看到的名字", text: $relay.displayName)
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("服务器联机昵称")
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("房间码").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    TextField("朋友分享的 12 位房间码", text: $relay.roomInput)
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("服务器房间码")
+                }
+            }.disabled(relay.isActive)
+            HStack(spacing: 10) {
+                Button("创建房间") { model.createRelayRoom() }.buttonStyle(.borderedProminent).disabled(relay.isActive)
+                Button("加入房间") { model.joinRelayRoom() }.buttonStyle(.bordered).disabled(relay.isActive)
+                if !relay.room.isEmpty {
+                    Button("复制房间码") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(relay.formattedRoom, forType: .string)
+                    }.buttonStyle(.bordered)
+                }
+                Spacer()
+                Button("离开房间") { model.leaveRelayRoom() }.buttonStyle(.bordered).disabled(!relay.isActive)
+            }.controlSize(.small)
+            HStack(spacing: 6) {
+                Circle().fill(relay.state == .connected ? Color.green : Palette.secondary).frame(width: 7, height: 7)
+                Text(relay.status).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("relayStatus")
+            }.font(.system(size: 11)).foregroundStyle(Palette.secondary)
+            HStack(spacing: 12) {
+                Toggle("接收朋友信号", isOn: $relay.receiveEnabled).toggleStyle(.checkbox)
+                Toggle("静音朋友", isOn: $relay.muteTeammates).toggleStyle(.checkbox)
+                Spacer()
+                Button("发送测试信号") { model.sendRelayTest() }.buttonStyle(.bordered).controlSize(.small)
+                    .disabled(!relay.canSend).accessibilityLabel("发送服务器测试信号")
+            }.font(.system(size: 11))
+            Text("两人填写同一服务器地址，一人创建房间，另一人输入房间码加入。朋友的信号显示在主屏幕中央；只接收无需辅助功能权限。服务器联机和局域网联机切换使用。")
+                .font(.system(size: 10)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(16).card()
     }
 }
 

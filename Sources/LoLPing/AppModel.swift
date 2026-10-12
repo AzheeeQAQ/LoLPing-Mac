@@ -20,7 +20,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var previewVisible = false
     // 局域网联机: receiving only depends on lanEnabled, never on Accessibility.
     @Published var lanEnabled: Bool {
-        didSet { defaults.set(lanEnabled, forKey: "lanEnabled"); restartLAN() }
+        didSet {
+            defaults.set(lanEnabled, forKey: "lanEnabled")
+            if lanEnabled { relay.disconnect() }
+            restartLAN()
+        }
     }
     @Published var lanMuteTeammates: Bool {
         didSet { defaults.set(lanMuteTeammates, forKey: "lanMuteTeammates"); if lanMuteTeammates { teammateSound.stopAll() }; onStateChange?() }
@@ -41,6 +45,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var lanNotice = ""
     var onStateChange: (() -> Void)?
     let defaults: UserDefaults
+    let relay: RelayClient
+    private var relayObservation: AnyCancellable?
     private let input = GlobalInput()
     private let overlay = OverlayController()
     private let sound = SoundPlayer()
@@ -54,6 +60,7 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        relay = RelayClient(defaults: defaults)
         chord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
         volume = defaults.object(forKey: "volume") == nil ? 0.55 : min(max(defaults.double(forKey: "volume"), 0), 1)
         scale = defaults.object(forKey: "effectScale") == nil ? 1 : min(max(defaults.double(forKey: "effectScale"), 0.75), 1.5)
@@ -71,6 +78,16 @@ final class AppModel: ObservableObject {
         lan.onStatus = { [weak self] status in self?.lanStatus = status; self?.onStateChange?() }
         lan.onPeers = { [weak self] peers in self?.lanPeers = peers; self?.onStateChange?() }
         lan.onReceive = { [weak self] message, playSound in self?.showTeammate(message, playSound: playSound) }
+        relay.onPing = { [weak self] kind, name in self?.showRemotePing(kind, sender: name) }
+        relay.onFailure = { [weak self] _ in self?.clearTeammateEffects() }
+        relayObservation = relay.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.relay.isActive && !self.relay.receiveEnabled { self.clearTeammateEffects() }
+                if self.relay.isActive && self.relay.muteTeammates { self.teammateSound.stopAll() }
+                self.onStateChange?()
+            }
+        }
         let center = NotificationCenter.default
         observations.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.checkPermission() })
         observations.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -78,6 +95,9 @@ final class AppModel: ObservableObject {
         })
         observations.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             self?.cancelEffects(); self?.clearTeammateEffects()
+        })
+        observations.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.relay.reconnectAfterWake()
         })
         // Teammate pings are not ours to cancel on focus or Space changes; they expire on their own.
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.sessionDidResignActiveNotification,
@@ -159,7 +179,20 @@ final class AppModel: ObservableObject {
     func shutdown() {
         // Preserve the user's enabled preference across an intentional app quit.
         permissionTimer?.invalidate(); input.stop(); overlay.clear(); sound.stopAll(); stopPreview()
-        lan.stop(); clearTeammateEffects()
+        lan.stop(); relay.disconnect(); clearTeammateEffects()
+    }
+
+    // MARK: 服务器联机
+
+    func createRelayRoom() { lanEnabled = false; relay.createRoom() }
+    func joinRelayRoom() { lanEnabled = false; relay.joinRoom() }
+    func leaveRelayRoom() { relay.disconnect(); clearTeammateEffects() }
+    func sendRelayTest() { relay.sendPing(.generic) }
+    private func showRemotePing(_ kind: PingKind, sender: String) {
+        guard relay.receiveEnabled, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let center = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        overlay.showPing(kind, at: center, scale: scale, label: sender, teammate: true)
+        if !relay.muteTeammates { teammateSound.play(kind, volume: volume) }
     }
 
     // MARK: 局域网联机
@@ -248,6 +281,7 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now()+4, execute: cleanup)
     }
     private func sendToTeammates(_ kind: PingKind, at anchor: CGPoint) {
+        if relay.isActive { relay.sendPing(kind); return }
         guard lanEnabled, !lanRoomCode.isEmpty else { return }
         let frames = NSScreen.screens.map(\.frame)
         guard let frame = LANGeometry.screenIndex(containing: anchor, in: frames).map({ frames[$0] }) ?? NSScreen.main?.frame else { return }

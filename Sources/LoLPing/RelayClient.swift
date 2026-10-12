@@ -1,0 +1,240 @@
+import Foundation
+import Combine
+import PingCore
+
+/// All mutable state and application callbacks are confined to the main thread.
+final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate {
+    enum State { case idle, connecting, connected, reconnecting, failed }
+    @Published var serverAddress: String {
+        didSet { defaults?.set(serverAddress, forKey: "relayServer") }
+    }
+    @Published var displayName: String {
+        didSet { defaults?.set(displayName, forKey: "relayName") }
+    }
+    @Published var roomInput = ""
+    @Published var receiveEnabled: Bool {
+        didSet { defaults?.set(receiveEnabled, forKey: "relayReceive") }
+    }
+    @Published var muteTeammates: Bool {
+        didSet { defaults?.set(muteTeammates, forKey: "relayMuteTeammates") }
+    }
+    @Published private(set) var state: State = .idle
+    @Published private(set) var status = "填写服务器地址，创建房间或加入朋友的房间。"
+    @Published private(set) var room = ""
+    @Published private(set) var peers: [RelayPeer] = []
+    @Published private(set) var memberID = ""
+    var onPing: ((PingKind, String) -> Void)?
+    var onConnected: (() -> Void)?
+    var onFailure: ((String) -> Void)?
+    var isActive: Bool { wanted }
+    var canSend: Bool { state == .connected && peers.count > 1 }
+    var formattedRoom: String {
+        stride(from: 0, to: room.count, by: 4).map { offset in
+            let start = room.index(room.startIndex, offsetBy: offset)
+            let end = room.index(start, offsetBy: min(4, room.count-offset))
+            return String(room[start..<end])
+        }.joined(separator: "-")
+    }
+    private let defaults: UserDefaults?
+    private var session: URLSession?
+    private var socket: URLSessionWebSocketTask?
+    private var endpoint: URL?
+    private var wanted = false
+    private var action = "create"
+    private var token: String?
+    private var generation = 0
+    private var retryCount = 0
+    private var reconnectWork: DispatchWorkItem?
+    private var handshakeTimer: Timer?
+    private var heartbeatTimer: Timer?
+    private var recentIDs: [String] = []
+    private var nextSend = Date.distantPast
+
+    init(defaults: UserDefaults? = .standard) {
+        self.defaults = defaults
+        serverAddress = defaults?.string(forKey: "relayServer") ?? ""
+        displayName = defaults?.string(forKey: "relayName") ?? "朋友"
+        receiveEnabled = defaults?.object(forKey: "relayReceive") == nil ? true : defaults!.bool(forKey: "relayReceive")
+        muteTeammates = defaults?.bool(forKey: "relayMuteTeammates") ?? false
+        super.init()
+    }
+    func createRoom() { connect(action: "create") }
+    func joinRoom() { connect(action: "join") }
+    private func connect(action: String) {
+        disconnect()
+        guard let url = RelayProtocol.endpoint(serverAddress) else {
+            terminal("请输入 wss://域名/ws；本机测试可用 ws://127.0.0.1:8787/ws。")
+            return
+        }
+        let code = RelayProtocol.roomCode(roomInput)
+        if action == "join" && !RelayProtocol.validRoomCode(code) {
+            terminal("请输入朋友分享的 12 位房间码。")
+            return
+        }
+        displayName = RelayProtocol.displayName(displayName)
+        self.action = action; endpoint = url; wanted = true
+        room = action == "join" ? code : ""
+        retryCount = 0; recentIDs.removeAll(); nextSend = .distantPast
+        open()
+    }
+    func disconnect() {
+        wanted = false; reconnectWork?.cancel(); reconnectWork = nil
+        closeTransport(leaving: true)
+        token = nil; room = ""; memberID = ""; peers = []
+        state = .idle; status = "联动已断开。"
+    }
+    func sendPing(_ kind: PingKind) {
+        guard canSend, Date() >= nextSend else { return }
+        nextSend = Date().addingTimeInterval(0.15)
+        var packet = RelayMessage(type: "ping")
+        packet.eventID = UUID().uuidString; packet.kind = kind
+        send(packet, generation: generation)
+    }
+    func reconnectAfterWake() {
+        guard wanted else { return }
+        transportFailed(generation: generation)
+    }
+    private func open() {
+        guard wanted, let endpoint else { return }
+        closeTransport()
+        state = retryCount == 0 ? .connecting : .reconnecting
+        status = retryCount == 0 ? "正在连接服务器…" : "连接中断，正在重新连接…"
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let task = session!.webSocketTask(with: endpoint)
+        task.maximumMessageSize = 4096; socket = task
+        let current = generation
+        task.resume()
+        receive(task, generation: current)
+        var hello = RelayMessage(type: "hello")
+        hello.version = RelayProtocol.version; hello.name = displayName
+        hello.action = token == nil ? action : "resume"
+        hello.room = room.isEmpty ? nil : room; hello.token = token
+        send(hello, generation: current)
+        let timer = Timer(timeInterval: 12, repeats: false) { [weak self] _ in self?.transportFailed(generation: current) }
+        handshakeTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func receive(_ task: URLSessionWebSocketTask, generation current: Int) {
+        task.receive { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.wanted, self.generation == current else { return }
+                switch result {
+                case .failure: self.transportFailed(generation: current)
+                case .success(let frame):
+                    let data: Data
+                    switch frame {
+                    case .string(let text): data = Data(text.utf8)
+                    case .data(let value): data = value
+                    @unknown default: self.terminal("服务器返回了不支持的消息。"); return
+                    }
+                    guard let packet = try? JSONDecoder().decode(RelayMessage.self, from: data) else {
+                        self.terminal("服务器消息格式不正确，请检查中继版本。"); return
+                    }
+                    self.handle(packet)
+                    if self.wanted && self.generation == current { self.receive(task, generation: current) }
+                }
+            }
+        }
+    }
+    private func handle(_ packet: RelayMessage) {
+        switch packet.type {
+        case "welcome":
+            guard state != .connected, packet.version == RelayProtocol.version,
+                  let code = packet.room, RelayProtocol.validRoomCode(code),
+                  let credential = packet.token, !credential.isEmpty,
+                  let id = packet.memberID, !id.isEmpty, let roster = packet.peers else {
+                terminal("中继协议不兼容，请更新客户端和服务端。"); return
+            }
+            room = code; roomInput = formattedRoom; token = credential; memberID = id
+            peers = roster; state = .connected; retryCount = 0
+            handshakeTimer?.invalidate(); handshakeTimer = nil
+            updateStatus(); startHeartbeat(); onConnected?()
+        case "peers":
+            guard state == .connected, let roster = packet.peers else { return }
+            peers = roster; updateStatus()
+        case "ping":
+            guard state == .connected, let rawID = packet.eventID, UUID(uuidString: rawID) != nil,
+                  let kind = packet.kind, let sender = packet.sender,
+                  sender.id != memberID, peers.contains(sender), sender.name.unicodeScalars.count <= 24 else { return }
+            let id = rawID.lowercased()
+            guard !recentIDs.contains(id) else { return }
+            recentIDs.append(id)
+            if recentIDs.count > 128 { recentIDs.removeFirst() }
+            if receiveEnabled { onPing?(kind, sender.name) }
+        case "error":
+            if packet.code == "rate_limited" { status = "发送太快，请稍等一下。" }
+            else { terminal(packet.message ?? "房间连接失败。") }
+        default: terminal("服务器返回了未知消息，请检查中继版本。")
+        }
+    }
+    private func updateStatus() {
+        let friends = peers.filter { $0.id != memberID }.map(\.name)
+        status = friends.isEmpty ? "房间已创建，等待朋友加入。" : "已连接：\(friends.joined(separator: "、"))"
+    }
+    private func send(_ packet: RelayMessage, generation current: Int) {
+        guard wanted, let socket, let data = try? JSONEncoder().encode(packet),
+              let text = String(data: data, encoding: .utf8) else { return }
+        socket.send(.string(text)) { [weak self] error in
+            if error != nil { DispatchQueue.main.async { self?.transportFailed(generation: current) } }
+        }
+    }
+    private func startHeartbeat() {
+        heartbeatTimer?.invalidate()
+        let current = generation
+        let timer = Timer(timeInterval: 20, repeats: true) { [weak self] _ in
+            guard let self, self.generation == current, let socket = self.socket else { return }
+            socket.sendPing { [weak self] error in
+                if error != nil { DispatchQueue.main.async { self?.transportFailed(generation: current) } }
+            }
+        }
+        heartbeatTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func transportFailed(generation current: Int) {
+        guard wanted, generation == current else { return }
+        closeTransport(); peers = []; state = .reconnecting
+        retryCount += 1
+        status = "连接中断，正在重新连接…（\(retryCount)）"
+        let work = DispatchWorkItem { [weak self] in self?.open() }
+        reconnectWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now()+min(pow(2, Double(min(retryCount-1, 4))), 10), execute: work)
+    }
+    private func terminal(_ message: String) {
+        wanted = false; reconnectWork?.cancel(); reconnectWork = nil
+        closeTransport(); token = nil; peers = []; room = ""; memberID = ""
+        state = .failed; status = message; onFailure?(message)
+    }
+    private func closeTransport(leaving: Bool = false) {
+        generation += 1
+        handshakeTimer?.invalidate(); handshakeTimer = nil
+        heartbeatTimer?.invalidate(); heartbeatTimer = nil
+        let oldSocket = socket, oldSession = session
+        socket = nil; session = nil
+        if leaving, let oldSocket, oldSocket.state == .running {
+            oldSocket.send(.string("{\"type\":\"leave\"}")) { _ in
+                oldSocket.cancel(with: .normalClosure, reason: nil); oldSession?.invalidateAndCancel()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now()+2) {
+                oldSocket.cancel(with: .normalClosure, reason: nil); oldSession?.invalidateAndCancel()
+            }
+        } else {
+            oldSocket?.cancel(with: .goingAway, reason: nil); oldSession?.invalidateAndCancel()
+        }
+    }
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didOpenWithProtocol protocol: String?) {}
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.socket === webSocketTask else { return }
+            self.transportFailed(generation: self.generation)
+        }
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard error != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.socket === task else { return }
+            self.transportFailed(generation: self.generation)
+        }
+    }
+}

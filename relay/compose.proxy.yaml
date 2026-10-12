@@ -1,0 +1,14 @@
+# For a server which already has an HTTPS reverse proxy on ports 80/443.
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      TRUST_PROXY: "1"
+    ports:
+      - "127.0.0.1:8787:8787"
+    mem_limit: 256m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

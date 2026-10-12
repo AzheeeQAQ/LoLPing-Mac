@@ -1,0 +1,178 @@
+import http from 'node:http';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { isIP } from 'node:net';
+import WebSocket, { WebSocketServer } from 'ws';
+
+const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVision', 'missing', 'enemyVision', 'generic']);
+const validRoom = (value) => typeof value === 'string' && /^[A-HJ-NP-Z2-9]{12}$/.test(value);
+const validUUID = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const validName = (value) => typeof value === 'string' && value.trim().length > 0 &&
+  Array.from(value).length <= 24 && !/[\u0000-\u001f\u007f]/.test(value);
+
+export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections = 1000, heartbeatMs = 25_000,
+  trustProxy = false, maxConnectionsPerAddress = 20 } = {}) {
+  for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress]) {
+    if (!Number.isInteger(value) || value < 1) throw new Error('Relay limits must be positive integers');
+  }
+  const rooms = new Map();
+  const byAddress = new Map();
+  const server = http.createServer((req, res) => {
+    const healthy = req.url === '/health' && req.method === 'GET';
+    res.writeHead(healthy ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(healthy ? { status: 'ok', protocol: 1 } : { error: 'not_found' }));
+  });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096, perMessageDeflate: false });
+  const send = (ws, packet) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.bufferedAmount > 16_384) { ws.terminate(); return; }
+    ws.send(JSON.stringify(packet));
+  };
+  const roster = (room) => [...room.members.values()].filter((member) => member.ws?.readyState === WebSocket.OPEN)
+    .map(({ id, name }) => ({ id, name }));
+  const broadcastPeers = (room) => {
+    const packet = { type: 'peers', peers: roster(room) };
+    for (const member of room.members.values()) if (member.ws) send(member.ws, packet);
+  };
+  const prune = (room) => {
+    for (const [id, member] of room.members) {
+      if (!member.ws && Date.now() - member.disconnectedAt >= graceMs) room.members.delete(id);
+    }
+    if (room.members.size === 0) rooms.delete(room.code);
+  };
+  const reject = (ws, code, message) => {
+    send(ws, { type: 'error', code, message });
+    ws.close(1008, code);
+  };
+  const addressOf = (req) => {
+    // Only enable behind a private/loopback reverse proxy which overwrites XFF.
+    const forwarded = req.headers['x-forwarded-for'];
+    if (trustProxy && typeof forwarded === 'string') {
+      const address = forwarded.split(',').at(-1).trim();
+      if (isIP(address)) return address;
+    }
+    return req.socket.remoteAddress;
+  };
+  server.on('upgrade', (req, socket, head) => {
+    const address = addressOf(req);
+    if (req.url !== '/ws' || wss.clients.size >= maxConnections || (byAddress.get(address) ?? 0) >= maxConnectionsPerAddress) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => { ws.clientAddress = address; wss.emit('connection', ws, req); });
+  });
+  wss.on('connection', (ws, req) => {
+    const address = ws.clientAddress;
+    byAddress.set(address, (byAddress.get(address) ?? 0) + 1);
+    let room, member, alive = true, tokens = 12, lastRefill = Date.now();
+    const authTimer = setTimeout(() => reject(ws, 'hello_timeout', '连接超时，请重新连接。'), 8000);
+    authTimer.unref();
+    ws.on('error', () => {}); // Malformed/oversized frames must not crash the relay.
+    ws.on('pong', () => { alive = true; });
+    ws.checkAlive = () => {
+      if (!alive) { ws.terminate(); return; }
+      alive = false;
+      if (ws.readyState === WebSocket.OPEN) ws.ping();
+    };
+    ws.on('message', (data, binary) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      tokens = Math.min(12, tokens + (now-lastRefill)*0.006); lastRefill = now;
+      if (tokens < 1) { send(ws, { type: 'error', code: 'rate_limited', message: '发送太快，请稍等一下。' }); return; }
+      tokens -= 1;
+      let packet;
+      try { packet = JSON.parse(data.toString()); } catch { reject(ws, 'invalid_message', '消息格式不正确。'); return; }
+      if (binary || !packet || typeof packet !== 'object' || Array.isArray(packet)) {
+        reject(ws, 'invalid_message', '只支持 JSON 文本消息。'); return;
+      }
+      if (!member) {
+        if (packet.type !== 'hello' || packet.version !== 1 || !validName(packet.name)) {
+          reject(ws, 'invalid_hello', '协议或名字不正确，请更新客户端。'); return;
+        }
+        if (packet.action === 'create') {
+          for (const existing of rooms.values()) prune(existing);
+          if (rooms.size >= maxRooms) { reject(ws, 'server_full', '服务器房间已满，请稍后重试。'); return; }
+          let code;
+          do { code = Array.from(randomBytes(12), (byte) => alphabet[byte & 31]).join(''); } while (rooms.has(code));
+          room = { code, members: new Map() }; rooms.set(code, room);
+        } else if (['join', 'resume'].includes(packet.action) && validRoom(packet.room)) {
+          room = rooms.get(packet.room);
+          if (room) prune(room);
+          room = rooms.get(packet.room);
+          if (!room) { reject(ws, 'room_missing', '房间不存在或已过期，请让朋友重新创建房间。'); return; }
+        } else { reject(ws, 'invalid_room', '房间码格式不正确。'); return; }
+        if (packet.action === 'resume') {
+          if (typeof packet.token !== 'string' || !/^[0-9a-f]{64}$/.test(packet.token)) {
+            reject(ws, 'invalid_token', '重连凭证无效，请重新加入房间。'); return;
+          }
+          member = [...room.members.values()].find((candidate) =>
+            timingSafeEqual(Buffer.from(candidate.token), Buffer.from(packet.token)));
+          if (!member) { reject(ws, 'resume_expired', '重连已超时，请重新加入房间。'); return; }
+          if (member.ws) { member.ws.close(1008, 'session_replaced'); }
+          member.ws = ws; member.disconnectedAt = null;
+        } else {
+          if (room.members.size >= 2) { reject(ws, 'room_full', '房间已满；断线成员会保留席位 60 秒。'); return; }
+          member = { id: randomUUID(), token: randomBytes(32).toString('hex'), name: packet.name.trim(), ws,
+            disconnectedAt: null, recentIDs: [] };
+          room.members.set(member.id, member);
+        }
+        clearTimeout(authTimer);
+        send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
+          memberID: member.id, peers: roster(room) });
+        broadcastPeers(room); return;
+      }
+      // A replaced transport can never send using its former member identity.
+      if (member.ws !== ws) { ws.close(1008, 'session_replaced'); return; }
+      if (packet.type === 'leave') {
+        room.members.delete(member.id); member.ws = null;
+        broadcastPeers(room); prune(room); ws.close(1000, 'left'); return;
+      }
+      if (packet.type !== 'ping' || !validUUID(packet.eventID) || !kinds.has(packet.kind)) {
+        reject(ws, 'invalid_ping', '信号格式不正确。'); return;
+      }
+      const eventID = packet.eventID.toLowerCase();
+      if (member.recentIDs.includes(eventID)) return;
+      member.recentIDs.push(eventID);
+      if (member.recentIDs.length > 128) member.recentIDs.shift();
+      const outgoing = { type: 'ping', eventID, kind: packet.kind, sender: { id: member.id, name: member.name } };
+      // Transient events: no storage, no sender echo, no cross-room broadcast.
+      for (const peer of room.members.values()) if (peer !== member && peer.ws) send(peer.ws, outgoing);
+    });
+    ws.on('close', () => {
+      clearTimeout(authTimer);
+      const count = (byAddress.get(address) ?? 1)-1;
+      if (count <= 0) byAddress.delete(address); else byAddress.set(address, count);
+      if (member?.ws === ws) {
+        member.ws = null; member.disconnectedAt = Date.now(); broadcastPeers(room);
+      }
+    });
+  });
+  const sweep = setInterval(() => { for (const room of rooms.values()) prune(room); }, Math.min(graceMs, 5000));
+  const heartbeat = setInterval(() => { for (const ws of wss.clients) ws.checkAlive(); }, heartbeatMs);
+  sweep.unref(); heartbeat.unref();
+  return {
+    server,
+    async listen(port = 8787, host = '127.0.0.1') {
+      await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
+      return server.address();
+    },
+    async close() {
+      clearInterval(sweep); clearInterval(heartbeat);
+      for (const ws of wss.clients) ws.terminate();
+      await new Promise((resolve) => wss.close(resolve));
+      await new Promise((resolve) => server.close(resolve));
+      rooms.clear();
+    }
+  };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = Number(process.env.PORT ?? 8787);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be between 1 and 65535');
+  const relay = createRelay({ trustProxy: process.env.TRUST_PROXY === '1' });
+  await relay.listen(port, process.env.HOST ?? '127.0.0.1');
+  console.log(`LoLPing relay listening on port ${port}; protocol 1`);
+  let stopping = false;
+  const stop = async () => { if (stopping) return; stopping = true; await relay.close(); process.exit(0); };
+  process.on('SIGTERM', stop); process.on('SIGINT', stop);
+}
