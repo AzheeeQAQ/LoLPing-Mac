@@ -21,6 +21,11 @@ if CommandLine.arguments.contains("--check-assets") {
     failures.forEach { print($0) }; exit(1)
 }
 
+// Headless LAN diagnostics: no event tap, menu bar item or window.
+if CommandLine.arguments.contains("--lan-listen") || CommandLine.arguments.contains("--lan-send") {
+    LANCommandLine.run(CommandLine.arguments)
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

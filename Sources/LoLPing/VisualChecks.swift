@@ -63,6 +63,22 @@ enum VisualChecks {
             }
         }
         try save(phases, to: directory.appendingPathComponent("effect-phases-retina.png"))
+        // Teammate pings: the nickname must fit inside the ping panel (outlined) at every scale.
+        let labels = bitmap(size: CGSize(width: 16*4+(165+220+330), height: 16*3+330*2)) {
+            for (row, name) in ["阿杰", "一二三四五六七八九十一二三四五六"].enumerated() {
+                var x = CGFloat(16)
+                for scale in [0.75, 1.0, 1.5] {
+                    let side = CGFloat(220*scale), origin = CGPoint(x: x, y: 16+CGFloat(1-row)*(330+16))
+                    let effect = PingEffectView(frame: CGRect(x: 0, y: 0, width: side, height: side), kind: row == 0 ? .retreat : .onMyWay, scale: CGFloat(scale), label: name)
+                    effect.seek(to: 0.65)
+                    draw(effect, at: origin)
+                    NSColor(white: 1, alpha: 0.18).setStroke()
+                    NSBezierPath(rect: CGRect(origin: origin, size: CGSize(width: side, height: side)).insetBy(dx: 0.5, dy: 0.5)).stroke()
+                    x += side+16
+                }
+            }
+        }
+        try save(labels, to: directory.appendingPathComponent("effect-teammate-label-retina.png"))
         try movie(to: directory.appendingPathComponent("LoLPing-effects-demo.mov"))
         print("Visual snapshots and renderer demo saved: \(directory.path)")
     }

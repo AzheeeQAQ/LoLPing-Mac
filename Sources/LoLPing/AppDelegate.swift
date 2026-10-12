@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var enableItem: NSMenuItem!
     private var stateItem: NSMenuItem!
+    private var lanStateItem: NSMenuItem!
+    private var lanPeersItem: NSMenuItem!
+    private var lanItem: NSMenuItem!
+    private var muteItem: NSMenuItem!
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,13 +35,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
     func applicationWillTerminate(_ notification: Notification) { model.shutdown() }
-    func windowWillClose(_ notification: Notification) { model.cancelEffects() }
+    func windowWillClose(_ notification: Notification) { model.commitLANDrafts(); model.cancelEffects() }
+    // The text field keeps focus when the window or app loses key, so commit here too.
+    func windowDidResignKey(_ notification: Notification) { model.commitLANDrafts() }
 
     @objc func showWindow() {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc private func toggleEnabled() { model.setEnabled(!(model.isEnabled || model.awaitingPermission)) }
+    @objc private func toggleLAN() { model.lanEnabled.toggle() }
+    @objc private func toggleMuteTeammates() { model.lanMuteTeammates.toggle() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func buildMainMenu() {
@@ -61,6 +69,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         enableItem.target = self; menu.addItem(enableItem)
         menu.addItem(withTitle: "打开控制窗口…", action: #selector(showWindow), keyEquivalent: "").target = self
         menu.addItem(.separator())
+        lanStateItem = NSMenuItem(title: "局域网：未开启", action: nil, keyEquivalent: "")
+        menu.addItem(lanStateItem)
+        lanPeersItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        lanPeersItem.isHidden = true; menu.addItem(lanPeersItem)
+        lanItem = NSMenuItem(title: "局域网联机", action: #selector(toggleLAN), keyEquivalent: "")
+        lanItem.target = self; menu.addItem(lanItem)
+        muteItem = NSMenuItem(title: "静音队友", action: #selector(toggleMuteTeammates), keyEquivalent: "")
+        muteItem.target = self; menu.addItem(muteItem)
+        menu.addItem(.separator())
         menu.addItem(withTitle: "退出 LoLPing", action: #selector(quit), keyEquivalent: "").target = self
         statusItem.menu = menu
     }
@@ -71,5 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         enableItem.title = model.awaitingPermission ? "取消启用" : "启用 Ping"
         statusItem.button?.toolTip = "LoLPing · \(state)"
         statusItem.button?.image = NSImage(systemSymbolName: model.isEnabled ? "location.circle.fill" : "location.circle", accessibilityDescription: "LoLPing · \(state)")
+        lanStateItem.title = model.lanMenuTitle
+        lanPeersItem.title = model.lanMenuPeers ?? ""
+        lanPeersItem.isHidden = model.lanMenuPeers == nil
+        lanItem.state = model.lanEnabled ? .on : .off
+        muteItem.state = model.lanMuteTeammates ? .on : .off
     }
 }

@@ -154,11 +154,13 @@ final class WheelView: NSView {
 final class PingEffectView: NSView {
     let kind: PingKind
     let effectScale: CGFloat
+    /// Teammate pings carry the sender's nickname; local pings have none.
+    let label: String?
     private(set) var elapsed: Double = 2
     private var started: CFTimeInterval = 0
     private var timer: Timer?
-    init(frame: NSRect, kind: PingKind, scale: CGFloat) {
-        self.kind = kind; self.effectScale = scale
+    init(frame: NSRect, kind: PingKind, scale: CGFloat, label: String? = nil) {
+        self.kind = kind; self.effectScale = scale; self.label = label
         super.init(frame: frame); wantsLayer = true; layer?.masksToBounds = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -227,6 +229,35 @@ final class PingEffectView: NSView {
         context.saveGState(); context.setAlpha(CGFloat(alpha))
         Assets.draw(kind, in: rect)
         context.restoreGState()
+        if let label, !label.isEmpty { drawLabel(label, below: ground, alpha: alpha) }
+    }
+    /// White type on a dark pill, below the outermost ripple, so the name reads
+    /// on any desktop. The kind tint (not a per-person color) edges the pill.
+    private func drawLabel(_ label: String, below ground: CGPoint, alpha: Double) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let s = effectScale
+        let layout = PingEffectView.labelLayout(label, scale: s, width: bounds.width)
+        let pill = layout.pill.offsetBy(dx: ground.x, dy: ground.y)
+        context.saveGState(); context.setAlpha(CGFloat(alpha))
+        let shape = NSBezierPath(roundedRect: pill, xRadius: pill.height/2, yRadius: pill.height/2)
+        NSColor(white: 0, alpha: 0.58).setFill(); shape.fill()
+        kind.tint.withAlphaComponent(0.45).setStroke(); shape.lineWidth = 0.8*s; shape.stroke()
+        context.setShadow(offset: CGSize(width: 0, height: -0.5*s), blur: 2*s, color: NSColor(white: 0, alpha: 0.95).cgColor)
+        layout.text.draw(at: CGPoint(x: pill.minX+6*s, y: pill.minY+2*s))
+        context.restoreGState()
+    }
+    /// The nickname pill relative to the footprint, 40 points below it.
+    static func labelLayout(_ label: String, scale s: CGFloat, width: CGFloat) -> (text: NSAttributedString, pill: CGRect) {
+        let padding = 6*s
+        func attributed(_ size: CGFloat) -> NSAttributedString {
+            NSAttributedString(string: label, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: NSColor.white])
+        }
+        // Names are capped at 16 characters, so shrinking is enough to fit.
+        var string = attributed(12*s)
+        let available = width-2*padding-4*s
+        if string.size().width > available { string = attributed(max(6*s, 12*s*available/string.size().width)) }
+        let size = string.size()
+        return (string, CGRect(x: -size.width/2-padding, y: -40*s-size.height/2-2*s, width: size.width+2*padding, height: size.height+4*s))
     }
 }
 
@@ -234,7 +265,23 @@ final class OverlayController {
     private var wheel: OverlayPanel?
     private var wheelView: WheelView?
     private var retiring: [(OverlayPanel, DispatchWorkItem)] = []
-    private var effects: [(UUID, OverlayPanel, DispatchWorkItem)] = []
+    private var effects: [(id: UUID, panel: OverlayPanel, cleanup: DispatchWorkItem, teammate: Bool)] = []
+    /// The ping panel relative to its anchor. The footprint (13 points below the
+    /// view center) is exactly the anchor; the nickname also fits inside.
+    static func pingPanel(scale: Double) -> CGRect {
+        let side = CGFloat(220*scale)
+        return CGRect(x: -side/2, y: -side/2+13*CGFloat(scale), width: side, height: side)
+    }
+    /// What is actually visible around the anchor: the outer ripple (about 60
+    /// points each side), the rising icon (up to 66 above) and the nickname.
+    /// Teammate pings are kept on screen by this rather than by the mostly
+    /// transparent panel, so a ping near an edge lands where it was sent.
+    static func pingContent(scale: Double, label: String?) -> CGRect {
+        let s = CGFloat(scale)
+        let content = CGRect(x: -60*s, y: -36*s, width: 120*s, height: 102*s)
+        guard let label, !label.isEmpty else { return content }
+        return content.union(PingEffectView.labelLayout(label, scale: s, width: pingPanel(scale: scale).width).pill)
+    }
     @discardableResult func showWheel(at anchor: CGPoint, scale: Double) -> CGPoint {
         hideWheel(animated: false)
         let side = CGFloat(300*scale)
@@ -258,24 +305,30 @@ final class OverlayController {
         retiring.append((panel, cleanup))
         DispatchQueue.main.asyncAfter(deadline: .now()+0.10, execute: cleanup)
     }
-    func showPing(_ kind: PingKind, at point: CGPoint, scale: Double) {
-        if effects.count >= 16 { let oldest = effects.removeFirst(); oldest.2.cancel(); closeEffect(oldest.1) }
-        let side = CGFloat(220*scale)
-        // The footprint (13 points below the view center) is exactly the anchor.
-        let panel = OverlayPanel(frame: CGRect(x: point.x-side/2, y: point.y-side/2+13*scale, width: side, height: side))
-        let view = PingEffectView(frame: CGRect(x: 0, y: 0, width: side, height: side), kind: kind, scale: CGFloat(scale))
+    /// `teammate` pings outlive clear() and are only removed by clearTeammates().
+    func showPing(_ kind: PingKind, at point: CGPoint, scale: Double, label: String? = nil, teammate: Bool = false) {
+        if effects.count >= 16 { let oldest = effects.removeFirst(); oldest.cleanup.cancel(); closeEffect(oldest.panel) }
+        let frame = OverlayController.pingPanel(scale: scale).offsetBy(dx: point.x, dy: point.y)
+        let panel = OverlayPanel(frame: frame)
+        let view = PingEffectView(frame: CGRect(origin: .zero, size: frame.size), kind: kind, scale: CGFloat(scale), label: label)
         panel.contentView = view; panel.orderFrontRegardless(); view.start()
         let id = UUID()
         let cleanup = DispatchWorkItem { [weak self, weak panel] in
-            if let panel { self?.closeEffect(panel) }; self?.effects.removeAll { $0.0 == id }
+            if let panel { self?.closeEffect(panel) }; self?.effects.removeAll { $0.id == id }
         }
-        effects.append((id, panel, cleanup))
+        effects.append((id, panel, cleanup, teammate))
         DispatchQueue.main.asyncAfter(deadline: .now()+2.05, execute: cleanup)
     }
     private func closeEffect(_ panel: OverlayPanel) { (panel.contentView as? PingEffectView)?.stop(); panel.close() }
+    /// Local wheel and local pings only.
     func clear() {
         hideWheel(animated: false)
         retiring.forEach { $0.1.cancel(); $0.0.contentView?.layer?.removeAllAnimations(); $0.0.close() }; retiring.removeAll()
-        effects.forEach { $0.2.cancel(); closeEffect($0.1) }; effects.removeAll()
+        removeEffects { !$0.teammate }
+    }
+    func clearTeammates() { removeEffects { $0.teammate } }
+    private func removeEffects(where match: ((id: UUID, panel: OverlayPanel, cleanup: DispatchWorkItem, teammate: Bool)) -> Bool) {
+        effects.filter(match).forEach { $0.cleanup.cancel(); closeEffect($0.panel) }
+        effects.removeAll(where: match)
     }
 }

@@ -4,7 +4,7 @@ cd "${0:A:h:h}"
 mkdir -p .build/module-cache .build/cache .build/config .build/security
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
-swift build -c release --product LoLPing --disable-sandbox --cache-path "$PWD/.build/cache" --config-path "$PWD/.build/config" --security-path "$PWD/.build/security"
+swift build -c release --product LoLPing --build-system native --disable-sandbox --cache-path "$PWD/.build/cache" --config-path "$PWD/.build/config" --security-path "$PWD/.build/security"
 APP="$PWD/dist/LoLPing.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/LoLPing "$APP/Contents/MacOS/LoLPing"

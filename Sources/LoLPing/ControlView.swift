@@ -11,12 +11,15 @@ private enum Palette {
 
 struct ControlView: View {
     @ObservedObject var model: AppModel
+    private enum LANField: Hashable { case nickname, room }
+    @FocusState private var focusedField: LANField?
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 statusCard
                 settingsCard
+                lanCard
                 previewCard
                 footer
             }.padding(26)
@@ -93,6 +96,55 @@ struct ControlView: View {
             Text("按住 0.18 秒 → 移动选择 → 松开发送　 ·　 Esc / 右键取消")
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }.padding(16).card()
+    }
+    private var lanCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Circle().fill(lanDotColor).frame(width: 7, height: 7)
+                Text("局域网联机").font(.system(size: 14, weight: .semibold))
+                Text("和同一 Wi-Fi 的朋友互发信号").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                Spacer()
+                Toggle("开启局域网联机", isOn: Binding(get: { model.lanEnabled }, set: { model.commitLANDrafts(); model.lanEnabled = $0 }))
+                    .labelsHidden().toggleStyle(.switch).accessibilityLabel("开启局域网联机")
+            }
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("昵称").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    TextField("朋友看到的名字", text: $model.lanNicknameDraft)
+                        .textFieldStyle(.roundedBorder).focused($focusedField, equals: .nickname)
+                        .onSubmit { model.commitLANDrafts() }.accessibilityLabel("昵称")
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("房间码").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    TextField("4-8 位数字/字母，和朋友填一样的", text: $model.lanRoomDraft)
+                        .textFieldStyle(.roundedBorder).focused($focusedField, equals: .room)
+                        .onSubmit { model.commitLANDrafts() }.accessibilityLabel("房间码")
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: model.lanStatus.problem == nil ? "person.2" : "exclamationmark.triangle")
+                Text(model.lanStatusText).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("lanStatus")
+            }.font(.system(size: 11)).foregroundStyle(model.lanStatus.problem == nil ? Palette.secondary : Palette.gold)
+            HStack(spacing: 14) {
+                Toggle("静音队友", isOn: $model.lanMuteTeammates).toggleStyle(.checkbox).font(.system(size: 11))
+                Spacer()
+                if !model.lanNotice.isEmpty {
+                    Text(model.lanNotice).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                }
+                Button("发送测试信号") { model.commitLANDrafts(); model.sendTestSignal() }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .disabled(!model.lanEnabled)
+            }
+            Text("需要在同一个 Wi-Fi；访客网/校园网可能互相看不到，可试手机热点。只接收不需要辅助功能权限。")
+                .font(.system(size: 10)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16).card()
+        .onChange(of: focusedField) { _ in model.commitLANDrafts() }
+    }
+    private var lanDotColor: Color {
+        guard model.lanEnabled else { return Palette.secondary }
+        if model.lanStatus.problem != nil { return Palette.gold }
+        return model.lanPeers.online.isEmpty ? Palette.secondary : Color.green
     }
     private var previewCard: some View {
         VStack(alignment: .leading, spacing: 12) {

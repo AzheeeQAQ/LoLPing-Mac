@@ -2,9 +2,10 @@ import Foundation
 import CoreGraphics
 import PingCore
 
-private var failures = 0
-private var assertions = 0
-private func XCTAssertEqual<T: Equatable>(_ actual: T, _ expected: T, file: StaticString = #filePath, line: UInt = #line) {
+// Shared by every checks file in this executable.
+var failures = 0
+var assertions = 0
+func XCTAssertEqual<T: Equatable>(_ actual: T, _ expected: T, file: StaticString = #filePath, line: UInt = #line) {
     assertions += 1
     if actual != expected {
         failures += 1
@@ -145,6 +146,7 @@ final class GestureTests {
 enum Checks {
     static func main() {
         let test = GestureTests()
+        let lan = LANTests()
         let scenarios: [(String, () -> Void)] = [
             ("八向选择与中央区域", test.testEightDirectionsAndCentralDeadZone),
             ("短按不触发", test.testShortPressNeverPingsAndLateTimerDoesNothing),
@@ -159,7 +161,15 @@ enum Checks {
             ("延迟期间的鼠标移动", test.testMovementDuringArmingAppliedAfterWheelOpens),
             ("三种可选组合键", test.testEveryConfigurableChord),
             ("同扇区方向更新与中央复位", test.testContinuousDirectionAndCenterReset),
-            ("缩放后中心判定与圆圈一致", test.testScaledCenterMatchesVisualCircle)
+            ("缩放后中心判定与圆圈一致", test.testScaledCenterMatchesVisualCircle),
+            ("局域网：房间码哈希与规范化", lan.testRoomHashAndNormalization),
+            ("局域网：数据包编解码", lan.testPacketRoundTrip),
+            ("局域网：拒绝异常数据包", lan.testRejectsInvalidPackets),
+            ("局域网：昵称清理与服务名长度", lan.testNameSanitizing),
+            ("局域网：序号去重与乱序", lan.testSequenceDedupe),
+            ("局域网：在线状态", lan.testPresence),
+            ("局域网：发送频率限制", lan.testRateLimiter),
+            ("局域网：多屏相对坐标与边缘收拢", lan.testCoordinates)
         ]
         for (name, scenario) in scenarios {
             let before = failures
