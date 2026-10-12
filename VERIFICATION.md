@@ -1,3 +1,18 @@
+# LoLPing 1.3.1 公网部署验证
+
+日期：2026-10-12（America/Los_Angeles）。服务器：18.236.249.217，应用 TCP 端口 28787，目录 /opt/lolping/current，Docker Compose 项目 lolping。
+
+- 中继容器健康，Caddy 只对公网发布 28787；Docker 已启用开机启动，两个容器设置 unless-stopped。
+- 私有证书信任通过严格 Security 校验；六项检查覆盖正确证书链/IP、无关 CA 拒绝、过期证书拒绝、限定主机、限定端口及主机名不匹配拒绝。
+- 用实际生产 Swift 客户端连接公网加密入口，创建/加入、双向 Ping 与发送者名字、接收开关、身份恢复和主动离开释放席位通过。
+- 原生 TLS WebSocket 的 ping/pong 心跳在公网通过；原有 URLSession 传输的本机中继集成检查也通过。
+- 专用服务器使用 Network.framework TLS/WebSocket，最低 TLS 版本 1.2、限定信任此服务器的根 CA。ATS 保持默认，未加入 HTTP 安全例外，未安装系统根证书。
+- Caddy 自动续期服务证书，持久保存其 CA。根证书公开文件通过可信 SSH 获取，客户端 DER SHA-256 为 b5a53b1fc81786374d7e381a59b0fb8296c06adab8fcde8ca93536b1f4f58797。
+
+此前的 1.3.0 是通用服务器客户端，此 IP 实例需要 1.3.1 的专用证书配置。以下保留历史验证记录。
+
+---
+
 # LoLPing 1.3.0 服务器联机版验证记录
 
 日期：2026-10-11（America/Los_Angeles）。基线：AzheeeQAQ/LoLPing-Mac `405135d`。环境：Apple Silicon、macOS 26.2、Swift 6.2.3、Docker 29.2.1。

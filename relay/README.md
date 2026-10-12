@@ -1,6 +1,25 @@
-# LoLPing 1.3.0 服务器部署
+# LoLPing 1.3.1 服务器部署
 
-服务器运行 WebSocket 房间中继，两台 Mac 使用 LoLPing 1.3.0 服务器联机版接入。原来的 LAN-only 客户端不能连接此服务。
+服务器运行 WebSocket 房间中继，两台 Mac 使用 LoLPing 1.3.1 服务器联机版接入。原来的 LAN-only 客户端不能连接此服务。
+
+## 已部署实例：IP 加密连接，服务端口 28787
+
+当前部署位于 `18.236.249.217`，目录 `/opt/lolping/current`，Compose 项目名 `lolping`。运行的配置为 `compose.ip.yaml`、`Caddyfile.ip`，对公网仅发布 TCP 28787。
+
+客户端使用 `wss://18.236.249.217:28787/ws`。1.3.1 App 内置该实例的公开根证书，证书信任限定到这个 IP 与端口。Caddy 自动续期服务证书，客户端继续校验证书链、主机名和有效期。根证书不写入 Mac 系统钥匙串。
+
+维护命令：
+
+```sh
+cd /opt/lolping/current
+docker compose -p lolping -f compose.ip.yaml ps
+docker compose -p lolping -f compose.ip.yaml logs --tail=100
+docker compose -p lolping -f compose.ip.yaml up -d --build
+```
+
+保留 `lolping_caddy_data` 卷，其中保存此实例的证书机构与私钥。更新、重建容器时沿用这个卷。删除此卷或迁移到另一台服务器时，需通过可信 SSH 重新获取公开根证书、更新客户端的 `Resources/RelayTrust` 并重新签名打包；不要通过未经验证的网络自动下载并信任新根证书。
+
+`compose.ip.yaml` 是此实例的固定配置。部署新的实例时，需要独立证书机构和对应客户端配置，或使用下述标准域名 HTTPS 部署。
 
 ## 全新服务器：Docker Compose + 自动 HTTPS
 
@@ -55,7 +74,7 @@ ping.your-domain.com {
 
 ## 客户端使用
 
-两人安装 LoLPing 1.3.0，填写同一 `wss://域名/ws` 和各自昵称。一人创建房间，另一人输入生成的 12 位房间码加入。点击“发送测试信号”后，朋友会在主屏幕中央看到信号和发送者名字。开启本机 Ping 并允许辅助功能后，也可用快捷键发送九种信号。接收方无需辅助功能权限。
+两人安装 LoLPing 1.3.1，填写同一 `wss://域名/ws` 和各自昵称。一人创建房间，另一人输入生成的 12 位房间码加入。点击“发送测试信号”后，朋友会在主屏幕中央看到信号和发送者名字。开启本机 Ping 并允许辅助功能后，也可用快捷键发送九种信号。接收方无需辅助功能权限。
 
 ## 无域名：通过 SSH 隧道使用
 
@@ -98,3 +117,5 @@ npm start
 在 Mac 的源码仓库先执行 `zsh scripts/build.sh`，再到 `relay/` 执行 `npm run test:swift`，可验证生产版客户端的房间创建/加入、双向发送、接收开关、身份恢复和离开房间。不监听全局按键、不显示动画、不播放音效、不读写用户偏好。
 
 部署依赖说明：[Caddy reverse_proxy 官方文档](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)，[ws 官方版本记录](https://github.com/websockets/ws/releases)。
+
+此实例的专用连接使用 Network.framework 的 TLS WebSocket，TLS 最低版本为 1.2，并用指定 CA 验证证书链、IP 与有效期。App 的 ATS 保持默认，未添加 HTTP 例外。参考 [Apple WebSocket 文档](https://developer.apple.com/documentation/network/nwprotocolwebsocket) 和 [Apple 信任锚文档](https://developer.apple.com/documentation/security/sectrustsetanchorcertificates(_:_:))。

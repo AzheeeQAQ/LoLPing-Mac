@@ -11,6 +11,13 @@ enum RelayChecks {
         for client in [a, b, c] {
             client.serverAddress = endpoint
             client.onFailure = { fail($0) }
+            client.onTransportError = { error in
+                let value = error as NSError
+                print("Transport error: \(value.domain) \(value.code) \(value.localizedDescription)")
+                if let nested = value.userInfo[NSUnderlyingErrorKey] as? NSError {
+                    print("Underlying error: \(nested.domain) \(nested.code) \(nested.localizedDescription)")
+                }
+            }
         }
         a.displayName = "甲"; b.displayName = "乙"; c.displayName = "丙"
         func beginResumeIfReady() {
@@ -18,7 +25,7 @@ enum RelayChecks {
             print("PASS Swift clients: create/join and two-way signals with sender names")
             phase = "muted"; b.receiveEnabled = false
             DispatchQueue.main.asyncAfter(deadline: .now()+0.2) { a.sendPing(.push) }
-            DispatchQueue.main.asyncAfter(deadline: .now()+0.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now()+1.5) {
                 guard !done else { return }
                 print("PASS Swift clients: receive switch suppresses signals")
                 phase = "resuming"; b.receiveEnabled = true; b.reconnectAfterWake()
@@ -64,7 +71,7 @@ enum RelayChecks {
             done = true
         }
         a.createRoom()
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = Date().addingTimeInterval(30)
         while !done && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         if !done { failure = "Timed out: \(a.status) / \(b.status) / \(c.status)" }
         for client in [a, b, c] { client.disconnect() }

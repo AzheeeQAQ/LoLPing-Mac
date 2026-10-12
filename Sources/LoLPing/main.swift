@@ -10,6 +10,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--visual-check"), CommandLi
 // This diagnostics mode never creates an event tap or synthesizes keyboard/mouse events.
 if CommandLine.arguments.contains("--check-assets") {
     var failures = Assets.missingFiles
+    if let problem = RelayServerTrust.validationError { failures.append(problem) }
     for kind in PingKind.allCases {
         do {
             let player = try AVAudioPlayer(contentsOf: Assets.sound(kind))
@@ -22,6 +23,15 @@ if CommandLine.arguments.contains("--check-assets") {
 }
 
 // Headless LAN diagnostics: no event tap, menu bar item or window.
+if let index = CommandLine.arguments.firstIndex(of: "--relay-ping-check"), CommandLine.arguments.count > index+1,
+   let endpoint = RelayProtocol.endpoint(CommandLine.arguments[index+1]) {
+    exit(RelayTrustChecks.ping(endpoint: endpoint))
+}
+
+if let index = CommandLine.arguments.firstIndex(of: "--relay-trust-check"), CommandLine.arguments.count > index+2 {
+    exit(RelayTrustChecks.run(chainPath: CommandLine.arguments[index+1], foreignPath: CommandLine.arguments[index+2]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--relay-check"), CommandLine.arguments.count > index+1 {
     exit(RelayChecks.run(endpoint: CommandLine.arguments[index+1]))
 }

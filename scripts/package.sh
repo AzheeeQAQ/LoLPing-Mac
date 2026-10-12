@@ -27,6 +27,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/package/LoLPing "$APP/Contents/MacOS/LoLPing"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Artwork Resources/Icons Resources/Sounds "$APP/Contents/Resources/"
+if [[ -d Resources/RelayTrust ]]; then cp -R Resources/RelayTrust "$APP/Contents/Resources/"; fi
 cp Resources/asset-sources.json "$APP/Contents/Resources/"
 swift scripts/make_icon.swift "$PWD/.build/AppIcon.iconset"
 iconutil -c icns .build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"

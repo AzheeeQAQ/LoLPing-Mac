@@ -26,6 +26,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     var onPing: ((PingKind, String) -> Void)?
     var onConnected: (() -> Void)?
     var onFailure: ((String) -> Void)?
+    var onTransportError: ((Error) -> Void)?
     var isActive: Bool { wanted }
     var canSend: Bool { state == .connected && peers.count > 1 }
     var formattedRoom: String {
@@ -38,6 +39,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     private let defaults: UserDefaults?
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
+    private var pinnedSocket: PinnedRelaySocket?
     private var endpoint: URL?
     private var wanted = false
     private var action = "create"
@@ -52,7 +54,8 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
 
     init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
-        serverAddress = defaults?.string(forKey: "relayServer") ?? ""
+        let savedAddress = defaults?.string(forKey: "relayServer") ?? ""
+        serverAddress = savedAddress.isEmpty ? (RelayServerTrust.endpoint ?? "") : savedAddress
         displayName = defaults?.string(forKey: "relayName") ?? "朋友"
         receiveEnabled = defaults?.object(forKey: "relayReceive") == nil ? true : defaults!.bool(forKey: "relayReceive")
         muteTeammates = defaults?.bool(forKey: "relayMuteTeammates") ?? false
@@ -99,28 +102,55 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         closeTransport()
         state = retryCount == 0 ? .connecting : .reconnecting
         status = retryCount == 0 ? "正在连接服务器…" : "连接中断，正在重新连接…"
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 12
-        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-        let task = session!.webSocketTask(with: endpoint)
-        task.maximumMessageSize = 4096; socket = task
         let current = generation
-        task.resume()
-        receive(task, generation: current)
+        if let host = endpoint.host, let port = endpoint.port, RelayServerTrust.matches(host: host, port: port) {
+            guard let transport = PinnedRelaySocket(endpoint: endpoint) else {
+                terminal("服务器证书配置缺失或不正确，请重新安装对应版本。"); return
+            }
+            pinnedSocket = transport
+            transport.onOpen = { [weak self] in self?.sendHello(generation: current) }
+            transport.onMessage = { [weak self] data in
+                guard let self, self.wanted, self.generation == current else { return }
+                guard let packet = try? JSONDecoder().decode(RelayMessage.self, from: data) else {
+                    self.terminal("服务器消息格式不正确，请检查中继版本。"); return
+                }
+                self.handle(packet)
+            }
+            transport.onFailure = { [weak self] error in
+                guard let self, self.generation == current else { return }
+                self.onTransportError?(error); self.transportFailed(generation: current)
+            }
+            transport.start()
+        } else {
+            let config = URLSessionConfiguration.ephemeral
+            config.tlsMinimumSupportedProtocolVersion = .TLSv12
+            config.timeoutIntervalForRequest = 12
+            session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+            let task = session!.webSocketTask(with: endpoint)
+            task.maximumMessageSize = 4096; socket = task
+            task.resume()
+            receive(task, generation: current)
+            sendHello(generation: current)
+        }
+        let timer = Timer(timeInterval: 12, repeats: false) { [weak self] _ in self?.transportFailed(generation: current) }
+        handshakeTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func sendHello(generation current: Int) {
+        guard wanted, generation == current else { return }
         var hello = RelayMessage(type: "hello")
         hello.version = RelayProtocol.version; hello.name = displayName
         hello.action = token == nil ? action : "resume"
         hello.room = room.isEmpty ? nil : room; hello.token = token
         send(hello, generation: current)
-        let timer = Timer(timeInterval: 12, repeats: false) { [weak self] _ in self?.transportFailed(generation: current) }
-        handshakeTimer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     private func receive(_ task: URLSessionWebSocketTask, generation current: Int) {
         task.receive { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.wanted, self.generation == current else { return }
                 switch result {
-                case .failure: self.transportFailed(generation: current)
+                case .failure(let error):
+                    self.onTransportError?(error)
+                    self.transportFailed(generation: current)
                 case .success(let frame):
                     let data: Data
                     switch frame {
@@ -173,8 +203,15 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         status = friends.isEmpty ? "房间已创建，等待朋友加入。" : "已连接：\(friends.joined(separator: "、"))"
     }
     private func send(_ packet: RelayMessage, generation current: Int) {
-        guard wanted, let socket, let data = try? JSONEncoder().encode(packet),
+        guard wanted, let data = try? JSONEncoder().encode(packet),
               let text = String(data: data, encoding: .utf8) else { return }
+        if let pinnedSocket {
+            pinnedSocket.send(data) { [weak self] error in
+                if error != nil { self?.transportFailed(generation: current) }
+            }
+            return
+        }
+        guard let socket else { return }
         socket.send(.string(text)) { [weak self] error in
             if error != nil { DispatchQueue.main.async { self?.transportFailed(generation: current) } }
         }
@@ -183,10 +220,12 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         heartbeatTimer?.invalidate()
         let current = generation
         let timer = Timer(timeInterval: 20, repeats: true) { [weak self] _ in
-            guard let self, self.generation == current, let socket = self.socket else { return }
-            socket.sendPing { [weak self] error in
+            guard let self, self.generation == current else { return }
+            let completion: (Error?) -> Void = { [weak self] error in
                 if error != nil { DispatchQueue.main.async { self?.transportFailed(generation: current) } }
             }
+            if let pinnedSocket = self.pinnedSocket { pinnedSocket.sendPing(completion: completion) }
+            else { self.socket?.sendPing(pongReceiveHandler: completion) }
         }
         heartbeatTimer = timer; RunLoop.main.add(timer, forMode: .common)
     }
@@ -209,7 +248,13 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         handshakeTimer?.invalidate(); handshakeTimer = nil
         heartbeatTimer?.invalidate(); heartbeatTimer = nil
         let oldSocket = socket, oldSession = session
+        let oldPinned = pinnedSocket
+        pinnedSocket = nil
         socket = nil; session = nil
+        if leaving, let oldPinned {
+            oldPinned.send(Data("{\"type\":\"leave\"}".utf8)) { _ in oldPinned.cancel() }
+            DispatchQueue.main.asyncAfter(deadline: .now()+2) { oldPinned.cancel() }
+        } else { oldPinned?.cancel() }
         if leaving, let oldSocket, oldSocket.state == .running {
             oldSocket.send(.string("{\"type\":\"leave\"}")) { _ in
                 oldSocket.cancel(with: .normalClosure, reason: nil); oldSession?.invalidateAndCancel()
@@ -234,6 +279,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         guard error != nil else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, self.socket === task else { return }
+            if let error { self.onTransportError?(error) }
             self.transportFailed(generation: self.generation)
         }
     }
