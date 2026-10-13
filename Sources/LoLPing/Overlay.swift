@@ -30,6 +30,8 @@ private func text(_ string: String, at center: CGPoint, size: CGFloat, color: NS
 /// The atlas silhouettes, sector glow, center ornament and type are drawn
 /// independently at the current backing scale. No bitmap is magnified here.
 final class WheelView: NSView {
+    var emoteImages: [NSImage?]?
+    var emoteNames: [String] = []
     private(set) var selected: PingKind = .generic
     private(set) var direction: CGFloat?
     private var weights = Array(repeating: 0.0, count: 8)
@@ -111,7 +113,14 @@ final class WheelView: NSView {
             let p = CGPoint(x: c.x+cos(theta)*WheelGeometry.iconRadius*s, y: c.y+sin(theta)*WheelGeometry.iconRadius*s)
             let side = CGFloat(22+8*weight)*s
             let color = mix(kind.wheelIdleTint, kind.tint, weight)
-            Assets.draw(kind, in: CGRect(x: p.x-side/2, y: p.y-side/2, width: side, height: side), color: color)
+            if let images = emoteImages {
+                let imageSide = (40+8*weight)*s
+                let rect = CGRect(x: p.x-imageSide/2, y: p.y-imageSide/2, width: imageSide, height: imageSide)
+                if let image = images[index] { drawEmoteImage(image, in: rect) }
+                else { text("+", at: p, size: 20*s, color: .darkGray) }
+            } else {
+                Assets.draw(kind, in: CGRect(x: p.x-side/2, y: p.y-side/2, width: side, height: side), color: color)
+            }
         }
         let coreRect = CGRect(x: c.x-inner, y: c.y-inner, width: inner*2, height: inner*2)
         let core = NSBezierPath(ovalIn: coreRect)
@@ -137,7 +146,12 @@ final class WheelView: NSView {
             arc.appendArc(withCenter: c, radius: inner-7*s, startAngle: degrees-18, endAngle: degrees+18)
             wheelCyan.setStroke(); arc.lineWidth = 1.8*s; arc.stroke()
         }
-        if selected == .generic {
+        if emoteImages != nil {
+            let index = PingKind.wheel.firstIndex(of: selected)
+            let title = index.map { emoteNames[$0].isEmpty ? "空格" : String(emoteNames[$0].prefix(8)) } ?? "表情"
+            text(title, at: c, size: 12*s, color: wheelCyan, weight: .semibold)
+            text(selected == .generic ? "移开选择" : "松开发送", at: CGPoint(x: c.x, y: c.y+21*s), size: 8*s, color: .lightGray)
+        } else if selected == .generic {
             Assets.draw(.generic, in: CGRect(x: c.x-11*s, y: c.y+18*s, width: 22*s, height: 22*s))
             text("信号", at: CGPoint(x: c.x, y: c.y+1*s), size: 13*s, color: PingKind.generic.tint, weight: .semibold)
         } else {
@@ -282,13 +296,17 @@ final class OverlayController {
         guard let label, !label.isEmpty else { return content }
         return content.union(PingEffectView.labelLayout(label, scale: s, width: pingPanel(scale: scale).width).pill)
     }
-    @discardableResult func showWheel(at anchor: CGPoint, scale: Double) -> CGPoint {
+    @discardableResult func showWheel(at anchor: CGPoint, scale: Double, emotes: EmoteLibrary? = nil) -> CGPoint {
         hideWheel(animated: false)
         let side = CGFloat(300*scale)
         let screen = NSScreen.screens.first(where: { NSMouseInRect(anchor, $0.frame, false) }) ?? NSScreen.main
         let center = WheelGeometry.clampedCenter(anchor: anchor, frame: screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900), radius: side/2)
         let panel = OverlayPanel(frame: CGRect(x: center.x-side/2, y: center.y-side/2, width: side, height: side))
         let view = WheelView(frame: CGRect(x: 0, y: 0, width: side, height: side))
+        if let emotes {
+            view.emoteImages = emotes.slots.map { emotes.image($0) }
+            view.emoteNames = emotes.slots.map { id in emotes.items.first(where: { $0.id == id })?.name ?? "" }
+        }
         panel.contentView = view; panel.orderFrontRegardless(); view.open()
         wheel = panel; wheelView = view
         return center
@@ -319,7 +337,24 @@ final class OverlayController {
         effects.append((id, panel, cleanup, teammate))
         DispatchQueue.main.asyncAfter(deadline: .now()+2.05, execute: cleanup)
     }
-    private func closeEffect(_ panel: OverlayPanel) { (panel.contentView as? PingEffectView)?.stop(); panel.close() }
+    func showEmote(_ image: NSImage, at point: CGPoint, scale: Double, label: String? = nil, teammate: Bool = false) {
+        if effects.count >= 16 { let oldest = effects.removeFirst(); oldest.cleanup.cancel(); closeEffect(oldest.panel) }
+        let side = CGFloat(220*scale)
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) ?? NSScreen.main
+        let center = WheelGeometry.clampedCenter(anchor: point, frame: screen?.frame ?? .zero, radius: side/2)
+        let panel = OverlayPanel(frame: CGRect(x: center.x-side/2, y: center.y-side/2, width: side, height: side))
+        let view = EmoteEffectView(frame: CGRect(origin: .zero, size: panel.frame.size), image: image, label: label)
+        panel.contentView = view; panel.orderFrontRegardless(); view.start()
+        let id = UUID()
+        let cleanup = DispatchWorkItem { [weak self, weak panel] in
+            if let panel { self?.closeEffect(panel) }; self?.effects.removeAll { $0.id == id }
+        }
+        effects.append((id, panel, cleanup, teammate))
+        DispatchQueue.main.asyncAfter(deadline: .now()+3.05, execute: cleanup)
+    }
+    private func closeEffect(_ panel: OverlayPanel) {
+        (panel.contentView as? PingEffectView)?.stop(); (panel.contentView as? EmoteEffectView)?.stop(); panel.close()
+    }
     /// Local wheel and local pings only.
     func clear() {
         hideWheel(animated: false)
@@ -327,6 +362,7 @@ final class OverlayController {
         removeEffects { !$0.teammate }
     }
     func clearTeammates() { removeEffects { $0.teammate } }
+    func clearEmotes() { removeEffects { $0.panel.contentView is EmoteEffectView } }
     private func removeEffects(where match: ((id: UUID, panel: OverlayPanel, cleanup: DispatchWorkItem, teammate: Bool)) -> Bool) {
         effects.filter(match).forEach { $0.cleanup.cancel(); closeEffect($0.panel) }
         effects.removeAll(where: match)

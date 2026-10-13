@@ -4,17 +4,23 @@ import PingCore
 
 struct ShortcutEditor: View {
     @ObservedObject var model: AppModel
+    let forEmotes: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var modifiers: Modifiers
     @State private var keyCode: Int
 
-    init(model: AppModel) {
-        self.model = model
-        _modifiers = State(initialValue: model.chord.modifiers)
-        _keyCode = State(initialValue: model.chord.keyCode ?? -1)
+    init(model: AppModel, forEmotes: Bool = false) {
+        self.model = model; self.forEmotes = forEmotes
+        let chord = forEmotes ? model.emoteChord : model.chord
+        _modifiers = State(initialValue: chord.modifiers)
+        _keyCode = State(initialValue: chord.keyCode ?? -1)
     }
     private var selection: TriggerChord? {
         TriggerChord(modifiers: modifiers, keyCode: keyCode == -1 ? nil : keyCode)
+    }
+    private var conflict: Bool {
+        guard let selection else { return false }
+        return selection.conflicts(with: forEmotes ? model.chord : model.emoteChord)
     }
     private func binding(_ modifier: Modifiers) -> Binding<Bool> {
         Binding(get: { modifiers.contains(modifier) }, set: {
@@ -23,7 +29,7 @@ struct ShortcutEditor: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("自定义组合键").font(.system(size: 19, weight: .semibold))
+            Text(forEmotes ? "表情组合键" : "自定义组合键").font(.system(size: 19, weight: .semibold))
             Text("选择修饰键，可再搭配一个按键。设置期间暂停全局快捷键。")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
             HStack(spacing: 18) {
@@ -45,15 +51,16 @@ struct ShortcutEditor: View {
                  ? "只使用修饰键时至少选择两个；搭配普通按键时至少选择一个修饰键。"
                  : (keyCode == -1 ? "同时按住所选修饰键，移动选择，松开发送。" : "先按住修饰键，再按住搭配按键，移动选择，松开任一键发送。"))
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if conflict { Text("表情和 Ping 组合键重叠，请换一组修饰键或搭配按键。").font(.system(size: 11)).foregroundStyle(.orange) }
             Text("Esc 或右键取消信号。建议避开游戏和系统已有的快捷键；F 键可能需配合 Fn。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             HStack {
-                Button("恢复默认") { modifiers = TriggerChord.controlOptionCommand.modifiers; keyCode = -1 }
+                Button("恢复默认") { modifiers = (forEmotes ? TriggerChord.controlOptionShift : TriggerChord.controlOptionCommand).modifiers; keyCode = -1 }
                 Spacer()
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("保存") {
-                    if let selection { model.chord = selection; dismiss() }
-                }.buttonStyle(.borderedProminent).disabled(selection == nil).keyboardShortcut(.defaultAction)
+                    if let selection { if forEmotes { model.emoteChord = selection } else { model.chord = selection }; dismiss() }
+                }.buttonStyle(.borderedProminent).disabled(selection == nil || conflict).keyboardShortcut(.defaultAction)
             }
         }.padding(26).frame(width: 550)
             .background(Color(red: 0.065, green: 0.090, blue: 0.120))

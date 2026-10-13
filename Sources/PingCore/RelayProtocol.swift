@@ -2,6 +2,7 @@ import Foundation
 
 public enum RelayProtocol {
     public static let version = 1
+    public static let maxMessageBytes = 49_152
 
     public static func displayName(_ input: String) -> String {
         let normalized = input.precomposedStringWithCanonicalMapping
@@ -43,6 +44,8 @@ public struct RelayMessage: Codable {
     public var peers: [RelayPeer]?
     public var eventID: String?
     public var kind: PingKind?
+    public var capabilities: [String]?
+    public var emote: EmotePayload?
     public var sender: RelayPeer?
     public var code: String?
     public var message: String?

@@ -1,3 +1,4 @@
+import PingCore
 import Foundation
 import Network
 import Security
@@ -25,7 +26,7 @@ final class PinnedRelaySocket {
         }, DispatchQueue.global(qos: .userInitiated))
         let websocket = NWProtocolWebSocket.Options()
         websocket.autoReplyPing = true
-        websocket.maximumMessageSize = 4096
+        websocket.maximumMessageSize = RelayProtocol.maxMessageBytes
         let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
         parameters.defaultProtocolStack.applicationProtocols.insert(websocket, at: 0)
         connection = NWConnection(to: .url(endpoint), using: parameters)
@@ -70,7 +71,7 @@ final class PinnedRelaySocket {
             }
             switch metadata.opcode {
             case .text:
-                guard let data, data.count <= 4096 else { self.fail(Self.closedError); return }
+                guard let data, data.count <= RelayProtocol.maxMessageBytes else { self.fail(Self.closedError); return }
                 self.onMessage?(data)
             case .ping, .pong: break
             case .close: self.fail(Self.closedError); return

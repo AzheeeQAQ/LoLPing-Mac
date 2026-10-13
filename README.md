@@ -1,18 +1,26 @@
-# LoLPing Mac 1.4.0 · 服务器联机版
+# LoLPing Mac 1.5.0 · 服务器联机版
 
 在 Mac 桌面发送和接收 Ping。支持同一 Wi-Fi 的局域网直连，以及不同网络之间的服务器房间联机。
 
 客户端保留局域网直连，并提供加密的 WebSocket 房间中继。客户端要求 macOS 13 或更新版本，安装包同时支持 Apple 芯片和 Intel。
 
+## 自定义表情
+
+交互参考 [darrenprx/lolPing](https://github.com/darrenprx/lolPing)。在“自定义表情”中点击“添加图片…”或拖入 PNG/JPG/GIF/WebP，可保存最多 24 张图片，单张原图不超过 8 MB，最长边不超过 8192 像素。GIF/WebP 使用首帧，导入后保留透明背景并自动缩放为最长边 160 像素、32 KB 以内的 PNG。
+
+8 格轮盘各自选择图片，支持重命名、删除、直接预览和发送。开启“启用 Ping”后，默认按住 Control + Option + Shift，移动选择并松开发送；中心和空格不发送，Esc / 右键取消。表情组合键可单独自定义，设置页会阻止和 Ping 重叠的组合键。
+
+开启服务器或局域网联机后，图片随表情发送，朋友无需预先导入，双方需使用 1.5.0 或更新版本。关闭“开启表情”同时停止发送、接收和显示表情。图片与轮盘保存在 `~/Library/Application Support/LoLPing/Emotes`，安装更新保留这些设置。收到的图片只用于当前效果，不加入个人库、不写入磁盘。每秒最多发送一张表情，显示约 3 秒。
+
 ## 当前服务器
 
-已部署的服务器地址为 `wss://18.236.249.217:28787/ws`。1.4.0 客户端已预填这个地址，并内置该服务器专用的公开根证书。只需 TCP 28787，不需要额外开放证书签发端口，也不需要安装系统根证书。
+已部署的服务器地址为 `wss://18.236.249.217:28787/ws`。1.5.0 客户端已预填这个地址，并内置该服务器专用的公开根证书。只需 TCP 28787，不需要额外开放证书签发端口，也不需要安装系统根证书。
 
-双方使用 1.4.0 安装包，打开“服务器联机”开关，一人创建房间，另一人填 12 位房间码加入。该私有证书信任只对内置的服务器 IP 与端口生效，仍验证证书链、IP 地址和有效期；其他服务器沿用系统 HTTPS 校验。
+双方使用 1.5.0 安装包，打开“服务器联机”开关，一人创建房间，另一人填 12 位房间码加入。该私有证书信任只对内置的服务器 IP 与端口生效，仍验证证书链、IP 地址和有效期；其他服务器沿用系统 HTTPS 校验。
 
 ## 完整安装包
 
-[下载 1.4.0 完整 PKG 安装包](downloads/LoLPing-v1.4.0-complete-macOS-universal.pkg)。双击后按 macOS 安装向导操作，固定安装到 `/Applications/LoLPing.app`，自动备份并原子替换旧版，保留个人设置。旧版备份在 `/Library/Application Support/LoLPing/InstallerBackups`。
+[下载 1.5.0 完整 PKG 安装包](downloads/LoLPing-v1.5.0-complete-macOS-universal.pkg)。双击后按 macOS 安装向导操作，固定安装到 `/Applications/LoLPing.app`，自动备份并原子替换旧版，保留个人设置。旧版备份在 `/Library/Application Support/LoLPing/InstallerBackups`。
 
 安装包包含全部图标、动画、音效、服务器公开根证书及预填地址，无需另外安装运行环境。通过快捷键发送时需使用者手动允许辅助功能。若旧授权开关已打开但仍提示未授权，移除旧条目，重新添加 `/Applications/LoLPing.app` 并允许，然后重新打开 App。
 
@@ -21,7 +29,7 @@
 ## 跨网络联机
 
 1. 先按 [服务器部署说明](relay/README.md) 部署中继。
-2. 双方安装 **1.4.0 服务器联机版**，打开“服务器联机”开关，填写相同的服务器地址，例如 `wss://ping.example.com/ws`，并填写各自昵称。
+2. 双方安装 **1.5.0 服务器联机版**，打开“服务器联机”开关，填写相同的服务器地址，例如 `wss://ping.example.com/ws`，并填写各自昵称。
 3. 一人点击“创建房间”，将 12 位房间码分享给朋友；另一人输入房间码后点击“加入房间”。
 4. 显示“已连接：朋友的名字”后，点击“发送测试信号”检查连接。
 5. 使用快捷键发送时，开启“启用 Ping”并允许辅助功能，默认按住 Control + Option + Command，移动选择信号后松开；也可点击“触发组合键”旁的“自定义…”修改。
@@ -36,7 +44,7 @@
 
 搭配普通按键时先按修饰键，再按住所选按键 0.18 秒，移动选择后松开任意一个键发送。短按不发送，Esc / 右键取消；重复按键和不同松键顺序只提交一次。设置窗口打开时暂停全局输入，保存或取消后恢复。
 
-[下载 1.4.0 通用安装包](downloads/LoLPing-v1.4.0-server-macOS-universal.zip)
+[下载 1.5.0 通用安装包](downloads/LoLPing-v1.5.0-server-macOS-universal.zip)
 
 ## 服务器部署
 
@@ -73,6 +81,6 @@ zsh scripts/package-installer.sh  # 完整 PKG：固定安装路径、旧版备�
 
 ## 旧版局域网安装包
 
-[LoLPing-LAN-v1.2.0.zip](https://github.com/AzheeeQAQ/LoLPing-Mac/raw/refs/tags/v1.2.0-lan/downloads/LoLPing-LAN-v1.2.0.zip) 是旧版，仅支持局域网。根目录 `SHA256SUMS` 包含旧版和当前安装包的校验值。服务器联机需要使用新构建的 1.4.0 客户端。
+[LoLPing-LAN-v1.2.0.zip](https://github.com/AzheeeQAQ/LoLPing-Mac/raw/refs/tags/v1.2.0-lan/downloads/LoLPing-LAN-v1.2.0.zip) 是旧版，仅支持局域网。根目录 `SHA256SUMS` 包含旧版和当前安装包的校验值。服务器联机需要使用新构建的 1.5.0 客户端。
 
 原始桌面工具基于 [AllenTHT/LoLPing-Mac](https://github.com/AllenTHT/LoLPing-Mac)。本工具非 Riot 官方产品，游戏素材归 Riot Games 所有。

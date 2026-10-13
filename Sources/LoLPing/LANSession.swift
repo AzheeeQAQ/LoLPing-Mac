@@ -40,6 +40,9 @@ final class LANSession {
     private final class Tally { var remaining: Int; var delivered = 0; init(_ count: Int) { remaining = count } }
 
     let instanceID = UUID().uuidString
+    var onEmote: ((EmotePayload, String, CGPoint) -> Void)?
+    private var emoteAssembler = LANEmoteAssembler()
+    private var nextEmoteSend: TimeInterval = 0
     var onStatus: ((Status) -> Void)?
     var onPeers: ((Peers) -> Void)?
     /// Valid pings that passed dedupe and rate limits.
@@ -93,6 +96,21 @@ final class LANSession {
     func sendPing(_ kind: PingKind, at position: CGPoint, completion: ((Int) -> Void)? = nil) {
         queue.async { self.broadcast(kind: kind, position: position, completion: completion) }
     }
+    func sendEmote(_ emote: EmotePayload, at position: CGPoint) {
+        queue.async {
+            guard let config = self.config, self.now >= self.nextEmoteSend else { return }
+            self.nextEmoteSend = self.now+1
+            let packets = LANEmoteChunk.packets(emote, room: config.room, sender: self.instanceID, name: config.name, at: position)
+            let peers = self.readyPeers, generation = self.generation
+            // Two paced passes tolerate common Wi-Fi packet loss; assembly dedupes the second pass.
+            for pass in 0..<2 { for (index, data) in packets.enumerated() {
+                self.queue.asyncAfter(deadline: .now()+Double(pass)*0.4+Double(index)*0.004) { [weak self] in
+                    guard let self, generation == self.generation else { return }
+                    for (_, connection) in peers { connection.send(content: data, completion: .contentProcessed { _ in }) }
+                }
+            } }
+        }
+    }
     func sendHello(completion: ((Int) -> Void)? = nil) {
         queue.async { self.broadcast(kind: nil, position: nil, completion: completion) }
     }
@@ -141,7 +159,7 @@ final class LANSession {
         incoming.values.forEach { $0.connection.cancel() }; incoming.removeAll(); flows.removeAll()
         results.removeAll()
         listenerReady = false; browserReady = false; listenerProblem = nil; browserProblem = nil
-        presence.removeAll()
+        presence.removeAll(); emoteAssembler = LANEmoteAssembler()
         publishPeers()
     }
     /// Listener or browser failures restart everything after 5, 10, 20, 30 s.
@@ -300,6 +318,16 @@ final class LANSession {
     }
     private func handle(_ data: Data, flow: Int) {
         guard let config else { return }
+        if data.count <= LANProtocol.maxPacketBytes,
+           let chunk = try? JSONDecoder().decode(LANEmoteChunk.self, from: data), chunk.t == "emote" {
+            guard chunk.room == config.room, chunk.sender != instanceID,
+                  flows.check(flow, sender: chunk.sender, pingSeq: nil) == .accept else { return }
+            if let (payload, position) = emoteAssembler.accept(chunk, at: now),
+               presence.saw(chunk.sender, name: chunk.name, at: now), limiter.admit(chunk.sender, at: now) != .drop {
+                DispatchQueue.main.async { [weak self] in self?.onEmote?(payload, chunk.name, position) }
+            }
+            return
+        }
         guard let message = LANProtocol.decode(data, room: config.room, selfID: instanceID) else {
             log("drop invalid packet (\(data.count) bytes)")
             return

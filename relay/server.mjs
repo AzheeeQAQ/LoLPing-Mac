@@ -1,11 +1,22 @@
 import http from 'node:http';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVision', 'missing', 'enemyVision', 'generic']);
+const emoteCapability = 'emote-png-v1';
+const maxMessageBytes = 49_152;
+function validEmote(value) {
+  if (!value || typeof value !== 'object' || !/^[0-9a-f]{64}$/.test(value.id) || !validName(value.name) ||
+      typeof value.png !== 'string' || value.png.length > 43_692 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.png)) return false;
+  const png = Buffer.from(value.png, 'base64');
+  if (png.length < 33 || png.length > 32_768 || png.toString('base64') !== value.png ||
+      !png.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || png.toString('ascii', 12, 16) !== 'IHDR') return false;
+  const width = png.readUInt32BE(16), height = png.readUInt32BE(20);
+  return width > 0 && height > 0 && width <= 160 && height <= 160 && createHash('sha256').update(png).digest('hex') === value.id;
+}
 const validRoom = (value) => typeof value === 'string' && /^[A-HJ-NP-Z2-9]{12}$/.test(value);
 const validUUID = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const validName = (value) => typeof value === 'string' && value.trim().length > 0 &&
@@ -23,10 +34,10 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
     res.writeHead(healthy ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(healthy ? { status: 'ok', protocol: 1 } : { error: 'not_found' }));
   });
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4096, perMessageDeflate: false });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: maxMessageBytes, perMessageDeflate: false });
   const send = (ws, packet) => {
     if (ws.readyState !== WebSocket.OPEN) return;
-    if (ws.bufferedAmount > 16_384) { ws.terminate(); return; }
+    if (ws.bufferedAmount > 131_072) { ws.terminate(); return; }
     ws.send(JSON.stringify(packet));
   };
   const roster = (room) => [...room.members.values()].filter((member) => member.ws?.readyState === WebSocket.OPEN)
@@ -64,7 +75,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   wss.on('connection', (ws, req) => {
     const address = ws.clientAddress;
     byAddress.set(address, (byAddress.get(address) ?? 0) + 1);
-    let room, member, alive = true, tokens = 12, lastRefill = Date.now();
+    let room, member, alive = true, tokens = 12, lastRefill = Date.now(), byteTokens = 131_072, lastEmote = 0;
     const authTimer = setTimeout(() => reject(ws, 'hello_timeout', '连接超时，请重新连接。'), 8000);
     authTimer.unref();
     ws.on('error', () => {}); // Malformed/oversized frames must not crash the relay.
@@ -80,6 +91,9 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       tokens = Math.min(12, tokens + (now-lastRefill)*0.006); lastRefill = now;
       if (tokens < 1) { send(ws, { type: 'error', code: 'rate_limited', message: '发送太快，请稍等一下。' }); return; }
       tokens -= 1;
+      byteTokens = Math.min(131_072, byteTokens + (now-(ws.byteRefill ?? now))*65.536); ws.byteRefill = now;
+      if (data.length > byteTokens) { send(ws, { type: 'error', code: 'rate_limited' }); return; }
+      byteTokens -= data.length;
       let packet;
       try { packet = JSON.parse(data.toString()); } catch { reject(ws, 'invalid_message', '消息格式不正确。'); return; }
       if (binary || !packet || typeof packet !== 'object' || Array.isArray(packet)) {
@@ -116,9 +130,10 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
             disconnectedAt: null, recentIDs: [] };
           room.members.set(member.id, member);
         }
+        member.emotes = Array.isArray(packet.capabilities) && packet.capabilities.includes(emoteCapability);
         clearTimeout(authTimer);
         send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
-          memberID: member.id, peers: roster(room) });
+          memberID: member.id, peers: roster(room), capabilities: [emoteCapability] });
         broadcastPeers(room); return;
       }
       // A replaced transport can never send using its former member identity.
@@ -127,6 +142,24 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         room.members.delete(member.id); member.ws = null;
         broadcastPeers(room); prune(room); ws.close(1000, 'left'); return;
       }
+      if (packet.type === 'emote') {
+        if (!member.emotes || !validUUID(packet.eventID) || !validEmote(packet.emote)) {
+          reject(ws, 'invalid_emote', '表情格式不正确。'); return;
+        }
+        const eventID = packet.eventID.toLowerCase();
+        if (member.recentIDs.includes(eventID)) return;
+        if (now-lastEmote < 1000) { send(ws, { type: 'error', code: 'rate_limited' }); return; }
+        lastEmote = now;
+        member.recentIDs.push(eventID); if (member.recentIDs.length > 128) member.recentIDs.shift();
+        const outgoing = { type: 'emote', eventID,
+          emote: { id: packet.emote.id, name: packet.emote.name, png: packet.emote.png }, sender: { id: member.id, name: member.name } };
+        for (const peer of room.members.values()) if (peer !== member && peer.ws && peer.emotes) send(peer.ws, outgoing);
+        if ([...room.members.values()].some((peer) => peer !== member && peer.ws && !peer.emotes)) {
+          send(ws, { type: 'error', code: 'emote_unsupported', message: '朋友需要更新至 1.5.0 才能接收表情。' });
+        }
+        return;
+      }
+      if (data.length > 4096) { reject(ws, 'invalid_message', '信号消息过大。'); return; }
       if (packet.type !== 'ping' || !validUUID(packet.eventID) || !kinds.has(packet.kind)) {
         reject(ws, 'invalid_ping', '信号格式不正确。'); return;
       }

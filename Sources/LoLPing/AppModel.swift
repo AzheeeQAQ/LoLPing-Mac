@@ -9,6 +9,13 @@ final class AppModel: ObservableObject {
     @Published var chord: TriggerChord {
         didSet { defaults.set(chord.rawValue, forKey: "triggerChord"); restartInputIfNeeded() }
     }
+    let emotes: EmoteLibrary
+    @Published var emoteEnabled: Bool {
+        didSet { defaults.set(emoteEnabled, forKey: "emoteEnabled"); overlay.clearEmotes(); restartInputIfNeeded() }
+    }
+    @Published var emoteChord: TriggerChord {
+        didSet { defaults.set(emoteChord.rawValue, forKey: "emoteChord"); restartInputIfNeeded() }
+    }
     @Published var volume: Double {
         didSet { defaults.set(volume, forKey: "volume") }
     }
@@ -70,10 +77,17 @@ final class AppModel: ObservableObject {
     private var permissionTimer: Timer?
     private var observations: [NSObjectProtocol] = []
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, emoteDirectory: URL? = nil) {
         self.defaults = defaults
+        emotes = EmoteLibrary(directory: emoteDirectory)
+        emoteEnabled = defaults.object(forKey: "emoteEnabled") == nil ? true : defaults.bool(forKey: "emoteEnabled")
+        var savedEmoteChord = TriggerChord(rawValue: defaults.string(forKey: "emoteChord") ?? "") ?? .controlOptionShift
         relay = RelayClient(defaults: defaults)
-        chord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
+        let savedChord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
+        if savedEmoteChord.conflicts(with: savedChord) {
+            for candidate in [TriggerChord.controlOptionShift, .controlCommandShift, .controlOptionCommand] where !candidate.conflicts(with: savedChord) { savedEmoteChord = candidate; break }
+        }
+        chord = savedChord; emoteChord = savedEmoteChord
         volume = defaults.object(forKey: "volume") == nil ? 0.55 : min(max(defaults.double(forKey: "volume"), 0), 1)
         scale = defaults.object(forKey: "effectScale") == nil ? 1 : min(max(defaults.double(forKey: "effectScale"), 0.75), 1.5)
         lanEnabled = defaults.bool(forKey: "lanEnabled")
@@ -84,6 +98,8 @@ final class AppModel: ObservableObject {
         lanRoomCode = LANProtocol.normalizeRoomCode(defaults.string(forKey: "lanRoomCode") ?? "")
         lanNicknameDraft = lanNickname; lanRoomDraft = lanRoomCode
         input.onAction = { [weak self] action in self?.handle(action) }
+        input.onEmoteAction = { [weak self] action in self?.handleEmote(action) }
+        lan.onEmote = { [weak self] payload, name, point in self?.showReceivedEmote(payload, sender: name, position: point) }
         input.onUnavailable = { [weak self] in
             self?.setEnabled(false)
             self?.message = "全局输入已暂停，请检查辅助功能权限后重新开启。"
@@ -92,6 +108,7 @@ final class AppModel: ObservableObject {
         lan.onPeers = { [weak self] peers in self?.lanPeers = peers; self?.onStateChange?() }
         lan.onReceive = { [weak self] message, playSound in self?.showTeammate(message, playSound: playSound) }
         relay.onPing = { [weak self] kind, name in self?.showRemotePing(kind, sender: name) }
+        relay.onEmote = { [weak self] payload, name in self?.showReceivedEmote(payload, sender: name, position: nil) }
         relay.onFailure = { [weak self] _ in self?.clearTeammateEffects() }
         relayObservation = relay.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
@@ -150,7 +167,7 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            if !editingShortcut { try input.start(chord: chord, scale: scale) }
+            if !editingShortcut { try input.start(chord: chord, scale: scale, emoteChord: emoteEnabled && !emoteChord.conflicts(with: chord) ? emoteChord : nil) }
             isEnabled = true; awaitingPermission = false
             permissionTimer?.invalidate(); permissionTimer = nil
             defaults.set(true, forKey: "enabled")
@@ -324,6 +341,43 @@ final class AppModel: ObservableObject {
     }
     func endShortcutEditing() {
         editingShortcut = false; restartInputIfNeeded()
+    }
+    func previewEmote(_ id: String) {
+        guard let image = emotes.image(id), let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        overlay.showEmote(image, at: CGPoint(x: screen.frame.midX, y: screen.frame.midY), scale: scale)
+    }
+    func sendEmote(_ id: String, at point: CGPoint? = nil) {
+        guard emoteEnabled, let payload = emotes.payload(id), let image = emotes.image(id),
+              let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let anchor = point ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        overlay.showEmote(image, at: anchor, scale: scale)
+        if relayEnabled && relay.isActive { relay.sendEmote(payload) }
+        else if lanEnabled, !lanRoomCode.isEmpty {
+            let frame = NSScreen.screens.first(where: { NSMouseInRect(anchor, $0.frame, false) })?.frame ?? screen.frame
+            lan.sendEmote(payload, at: LANGeometry.normalize(anchor, in: frame))
+        }
+    }
+    private func showReceivedEmote(_ payload: EmotePayload, sender: String, position: CGPoint?) {
+        guard emoteEnabled, let image = EmoteLibrary.decode(payload) else { return }
+        if position == nil { guard relayEnabled, relay.receiveEnabled else { return } }
+        else { guard lanEnabled else { return } }
+        let screens = NSScreen.screens
+        let screen = position == nil ? (NSScreen.main ?? screens.first) : (screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main)
+        guard let screen else { return }
+        let anchor = position.map { LANGeometry.denormalize($0, in: screen.frame) } ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        overlay.showEmote(image, at: anchor, scale: scale, label: sender, teammate: true)
+    }
+    private func handleEmote(_ action: GestureMachine.Action) {
+        guard isEnabled, emoteEnabled else { return }
+        switch action {
+        case .show(let anchor): input.setWheelCenter(overlay.showWheel(at: anchor, scale: scale, emotes: emotes))
+        case .hover(let kind, let angle): overlay.select(kind, angle: angle)
+        case .hide: overlay.hideWheel(animated: false)
+        case .dismiss: overlay.hideWheel()
+        case .commit(let kind, let anchor):
+            if let index = PingKind.wheel.firstIndex(of: kind) { sendEmote(emotes.slots[index], at: anchor) }
+        case .arm: break
+        }
     }
     private func handle(_ action: GestureMachine.Action) {
         guard isEnabled else { return }

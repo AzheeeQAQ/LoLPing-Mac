@@ -2,6 +2,10 @@ import AppKit
 import AVFoundation
 import PingCore
 
+if let index = CommandLine.arguments.firstIndex(of: "--emote-check"), CommandLine.arguments.count > index+2 {
+    exit(EmoteChecks.run(endpoint: CommandLine.arguments[index+1], screenshots: URL(fileURLWithPath: CommandLine.arguments[index+2])))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--feature-check"), CommandLine.arguments.count > index+1 {
     exit(FeatureChecks.run(endpoint: CommandLine.arguments[index+1]))
 }

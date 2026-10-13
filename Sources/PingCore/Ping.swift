@@ -137,3 +137,10 @@ public enum WheelGeometry {
                        y: clamp(anchor.y, frame.minY + radius, frame.maxY - radius))
     }
 }
+
+public extension TriggerChord {
+    func conflicts(with other: TriggerChord) -> Bool {
+        self == other || (keyCode == nil && other.modifiers.isSuperset(of: modifiers)) ||
+        (other.keyCode == nil && modifiers.isSuperset(of: other.modifiers))
+    }
+}

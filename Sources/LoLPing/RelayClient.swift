@@ -24,6 +24,9 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     @Published private(set) var peers: [RelayPeer] = []
     @Published private(set) var memberID = ""
     var onPing: ((PingKind, String) -> Void)?
+    var onEmote: ((EmotePayload, String) -> Void)?
+    private var supportsEmotes = false
+    private var nextEmote = Date.distantPast
     var onConnected: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onTransportError: ((Error) -> Void)?
@@ -93,6 +96,13 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         packet.eventID = UUID().uuidString; packet.kind = kind
         send(packet, generation: generation)
     }
+    func sendEmote(_ emote: EmotePayload) {
+        guard canSend, emote.isValid, Date() >= nextEmote else { return }
+        guard supportsEmotes else { status = "服务器需要更新后才能传送表情。"; return }
+        nextEmote = Date().addingTimeInterval(1)
+        var packet = RelayMessage(type: "emote"); packet.eventID = UUID().uuidString; packet.emote = emote
+        send(packet, generation: generation)
+    }
     func reconnectAfterWake() {
         guard wanted else { return }
         transportFailed(generation: generation)
@@ -127,7 +137,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             config.timeoutIntervalForRequest = 12
             session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
             let task = session!.webSocketTask(with: endpoint)
-            task.maximumMessageSize = 4096; socket = task
+            task.maximumMessageSize = RelayProtocol.maxMessageBytes; socket = task
             task.resume()
             receive(task, generation: current)
             sendHello(generation: current)
@@ -138,7 +148,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     private func sendHello(generation current: Int) {
         guard wanted, generation == current else { return }
         var hello = RelayMessage(type: "hello")
-        hello.version = RelayProtocol.version; hello.name = displayName
+        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1"]
         hello.action = token == nil ? action : "resume"
         hello.room = room.isEmpty ? nil : room; hello.token = token
         send(hello, generation: current)
@@ -176,6 +186,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
                   let id = packet.memberID, !id.isEmpty, let roster = packet.peers else {
                 terminal("中继协议不兼容，请更新客户端和服务端。"); return
             }
+            supportsEmotes = packet.capabilities?.contains("emote-png-v1") == true
             room = code; roomInput = formattedRoom; token = credential; memberID = id
             peers = roster; state = .connected; retryCount = 0
             handshakeTimer?.invalidate(); handshakeTimer = nil
@@ -192,8 +203,14 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             recentIDs.append(id)
             if recentIDs.count > 128 { recentIDs.removeFirst() }
             if receiveEnabled { onPing?(kind, sender.name) }
+        case "emote":
+            guard state == .connected, receiveEnabled, let rawID = packet.eventID, UUID(uuidString: rawID) != nil,
+                  let emote = packet.emote, emote.isValid, let sender = packet.sender,
+                  sender.id != memberID, peers.contains(sender), !recentIDs.contains(rawID.lowercased()) else { return }
+            recentIDs.append(rawID.lowercased()); if recentIDs.count > 128 { recentIDs.removeFirst() }
+            onEmote?(emote, sender.name)
         case "error":
-            if packet.code == "rate_limited" { status = "发送太快，请稍等一下。" }
+            if ["rate_limited", "emote_unsupported"].contains(packet.code ?? "") { status = packet.message ?? "发送太快，请稍等一下。" }
             else { terminal(packet.message ?? "房间连接失败。") }
         default: terminal("服务器返回了未知消息，请检查中继版本。")
         }
@@ -203,7 +220,8 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         status = friends.isEmpty ? "房间已创建，等待朋友加入。" : "已连接：\(friends.joined(separator: "、"))"
     }
     private func send(_ packet: RelayMessage, generation current: Int) {
-        guard wanted, let data = try? JSONEncoder().encode(packet),
+        let encoder = JSONEncoder(); encoder.outputFormatting = .withoutEscapingSlashes
+        guard wanted, let data = try? encoder.encode(packet), data.count <= RelayProtocol.maxMessageBytes,
               let text = String(data: data, encoding: .utf8) else { return }
         if let pinnedSocket {
             pinnedSocket.send(data) { [weak self] error in
@@ -244,7 +262,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         state = .failed; status = message; onFailure?(message)
     }
     private func closeTransport(leaving: Bool = false) {
-        generation += 1
+        generation += 1; supportsEmotes = false
         handshakeTimer?.invalidate(); handshakeTimer = nil
         heartbeatTimer?.invalidate(); heartbeatTimer = nil
         let oldSocket = socket, oldSession = session

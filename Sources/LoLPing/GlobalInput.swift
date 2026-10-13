@@ -14,7 +14,13 @@ final class GlobalInput {
     }
     let machine = GestureMachine()
     var onAction: ((GestureMachine.Action) -> Void)?
+    var onEmoteAction: ((GestureMachine.Action) -> Void)?
+    private var pingChord: TriggerChord = .controlOptionCommand
+    private var emoteChord: TriggerChord?
+    private var emoteMode = false
     var onUnavailable: (() -> Void)?
+    private let mouseButtonsDown: () -> Bool
+    init(mouseButtonsDown: @escaping () -> Bool = { NSEvent.pressedMouseButtons != 0 }) { self.mouseButtonsDown = mouseButtonsDown }
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var timer: Timer?
@@ -29,10 +35,10 @@ final class GlobalInput {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    func start(chord: TriggerChord, scale: Double) throws {
+    func start(chord: TriggerChord, scale: Double, emoteChord: TriggerChord? = nil) throws {
         stop()
         guard Self.isTrusted else { throw StartError.permission }
-        machine.chord = chord
+        configure(chord: chord, emoteChord: emoteChord)
         machine.deadZone = WheelGeometry.centerRadius*scale
         machine.reset(blockUntilRelease: !Self.modifiers(CGEventSource.flagsState(.combinedSessionState)).intersection(chord.modifiers).isEmpty)
         let types: [CGEventType] = [.flagsChanged, .keyDown, .keyUp, .mouseMoved,
@@ -56,6 +62,9 @@ final class GlobalInput {
         CGEvent.tapEnable(tap: newTap, enable: true)
     }
 
+    func configure(chord: TriggerChord, emoteChord: TriggerChord? = nil) {
+        pingChord = chord; self.emoteChord = emoteChord; emoteMode = false; machine.chord = chord
+    }
     func stop() {
         timer?.invalidate(); timer = nil
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
@@ -93,14 +102,20 @@ final class GlobalInput {
             return false
         }
         recoveryAttempts = 0
+        if machine.phase == .idle && (type == .flagsChanged || type == .keyDown) {
+            let flags = Self.modifiers(event.flags)
+            let key = type == .keyDown ? Int(event.getIntegerValueField(.keyboardEventKeycode)) : nil
+            emoteMode = emoteChord.map { $0.modifiers == flags && ($0.keyCode == nil || $0.keyCode == key) } ?? false
+            machine.chord = emoteMode ? emoteChord! : pingChord
+        }
         switch type {
         case .flagsChanged:
-            let held = NSEvent.pressedMouseButtons != 0 || !keysDown.isEmpty
+            let held = mouseButtonsDown() || !keysDown.isEmpty
             dispatch(machine.flagsChanged(Self.modifiers(event.flags), at: point(event), otherInputHeld: held))
         case .keyDown:
             let key = event.getIntegerValueField(.keyboardEventKeycode)
             let repeated = keysDown.contains(key)
-            let otherHeld = NSEvent.pressedMouseButtons != 0 || !keysDown.subtracting([key]).isEmpty
+            let otherHeld = mouseButtonsDown() || !keysDown.subtracting([key]).isEmpty
             keysDown.insert(key)
             if swallowedKeys.contains(key) { return true }
             if machine.chord.keyCode == Int(key) {
@@ -136,6 +151,9 @@ final class GlobalInput {
         }
         return false
     }
+    private func emit(_ action: GestureMachine.Action) {
+        if emoteMode { onEmoteAction?(action) } else { onAction?(action) }
+    }
     private func dispatch(_ actions: [GestureMachine.Action]) {
         for action in actions {
             switch action {
@@ -149,8 +167,8 @@ final class GlobalInput {
                 timer = next; RunLoop.main.add(next, forMode: .common)
             case .hide, .dismiss:
                 timer?.invalidate(); timer = nil
-                onAction?(action)
-            default: onAction?(action)
+                emit(action)
+            default: emit(action)
             }
         }
     }

@@ -1,6 +1,6 @@
 services:
   relay:
-    image: lolping-relay:1.4.0
+    image: lolping-relay:1.5.0
     build: .
     restart: unless-stopped
     init: true

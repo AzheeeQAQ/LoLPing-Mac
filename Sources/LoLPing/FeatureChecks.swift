@@ -14,8 +14,8 @@ enum FeatureChecks {
             let deadline = Date().addingTimeInterval(12)
             while !condition() && Date() < deadline { spin(0.05) }
         }
-        let input = GlobalInput()
-        input.machine.chord = TriggerChord(modifiers: [.control], keyCode: 0)!
+        let input = GlobalInput(mouseButtonsDown: { false })
+        input.configure(chord: TriggerChord(modifiers: [.control], keyCode: 0)!)
         var commits = 0, opened = 0
         input.onAction = { action in
             if case .commit = action { commits += 1 }

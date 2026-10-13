@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import WebSocket from 'ws';
 import { createRelay } from '../server.mjs';
@@ -121,7 +121,7 @@ test('malformed JSON, unauthenticated signals and oversized frames cannot crash 
   assert.equal((await invalid.next('error')).code, 'invalid_message');
   const unauthenticated = await peer(url); unauthenticated.send(ping());
   assert.equal((await unauthenticated.next('error')).code, 'invalid_hello');
-  const large = await peer(url), closed = large.closed(); large.ws.send('a'.repeat(5000));
+  const large = await peer(url), closed = large.closed(); large.ws.send('a'.repeat(50_000));
   assert.equal(await closed, 1009);
   const healthy = await peer(url); assert.ok((await healthy.hello('create')).room);
 });
@@ -187,4 +187,47 @@ test('global connection limits still apply behind a trusted proxy', async (t) =>
   const a = await peer(url, { headers: { 'X-Forwarded-For': '192.0.2.1' } });
   await a.hello('create');
   await assert.rejects(peer(url, { headers: { 'X-Forwarded-For': '192.0.2.2' } }), /503/);
+});
+
+const emoteFixture = () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
+  return { id: createHash('sha256').update(png).digest('hex'), name: '自己的表情', png: png.toString('base64') };
+};
+test('custom images cross the room with bound sender, deduplication and no offline storage', async (t) => {
+  const { url } = await fixture(t);
+  const a = await peer(url), aw = await a.hello('create', { capabilities: ['emote-png-v1'], name: '甲' });
+  const b = await peer(url); await b.hello('join', { room: aw.room, capabilities: ['emote-png-v1'] });
+  const outside = await peer(url); await outside.hello('create', { capabilities: ['emote-png-v1'] });
+  const packet = { type: 'emote', eventID: randomUUID(), emote: emoteFixture(), sender: { id: 'forged', name: 'forged' } };
+  a.send(packet); const got = await b.next('emote');
+  assert.deepEqual(got.emote, packet.emote); assert.deepEqual(got.sender, { id: aw.memberID, name: '甲' });
+  a.send(packet); await delay(100);
+  assert.equal(b.messages.filter((p) => p.type === 'emote').length, 0);
+  assert.equal(a.messages.filter((p) => p.type === 'emote').length, 0);
+  assert.equal(outside.messages.filter((p) => p.type === 'emote').length, 0);
+  a.send({ ...packet, eventID: randomUUID() }); assert.equal((await a.next('error')).code, 'rate_limited');
+});
+test('old clients retain ping compatibility and are never sent unknown image frames', async (t) => {
+  const { url } = await fixture(t);
+  const a = await peer(url), aw = await a.hello('create', { capabilities: ['emote-png-v1'] });
+  const old = await peer(url); await old.hello('join', { room: aw.room });
+  a.send({ type: 'emote', eventID: randomUUID(), emote: emoteFixture() });
+  assert.equal((await a.next('error')).code, 'emote_unsupported');
+  await delay(30); assert.equal(old.messages.filter((p) => p.type === 'emote').length, 0);
+  a.send(ping()); assert.equal((await old.next('ping')).kind, 'generic');
+});
+test('image hash, dimensions, size and capabilities are checked', async (t) => {
+  const { url } = await fixture(t);
+  for (const mode of ['hash', 'dimensions', 'size', 'capability', 'base64']) {
+    const a = await peer(url); await a.hello('create', { capabilities: mode === 'capability' ? [] : ['emote-png-v1'] });
+    const emote = emoteFixture();
+    if (mode === 'hash') emote.id = '0'.repeat(64);
+    if (mode === 'base64') emote.png = 'garbage';
+    if (mode === 'dimensions' || mode === 'size') {
+      const png = mode === 'size' ? Buffer.alloc(32_769) : Buffer.from(emote.png, 'base64');
+      if (mode === 'dimensions') png.writeUInt32BE(161, 16);
+      emote.png = png.toString('base64'); emote.id = createHash('sha256').update(png).digest('hex');
+    }
+    a.send({ type: 'emote', eventID: randomUUID(), emote }); assert.equal((await a.next('error')).code, 'invalid_emote');
+  }
 });

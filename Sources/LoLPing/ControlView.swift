@@ -20,6 +20,7 @@ struct ControlView: View {
                 header
                 statusCard
                 settingsCard
+                EmoteControlView(model: model, library: model.emotes)
                 RelayControlView(model: model, relay: model.relay)
                 lanCard
                 previewCard
