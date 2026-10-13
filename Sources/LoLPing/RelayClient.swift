@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import PingCore
@@ -66,22 +67,35 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     }
     func createRoom() { connect(action: "create") }
     func joinRoom() { connect(action: "join") }
+    func pasteRoomCode(from pasteboard: NSPasteboard = .general) {
+        guard let text = pasteboard.string(forType: .string),
+              RelayProtocol.validRoomCode(RelayProtocol.roomCode(text)) else {
+            status = "剪贴板中没有有效的 12 位房间码。"
+            return
+        }
+        roomInput = RelayProtocol.roomCode(text)
+        status = isActive ? "房间码已粘贴，点击切换房间后生效。" : "房间码已粘贴，点击加入房间。"
+    }
     private func connect(action: String) {
-        disconnect()
         guard let url = RelayProtocol.endpoint(serverAddress) else {
-            terminal("请输入 wss://域名/ws；本机测试可用 ws://127.0.0.1:8787/ws。")
+            inputError("请输入 wss://域名/ws；本机测试可用 ws://127.0.0.1:8787/ws。")
             return
         }
         let code = RelayProtocol.roomCode(roomInput)
         if action == "join" && !RelayProtocol.validRoomCode(code) {
-            terminal("请输入朋友分享的 12 位房间码。")
+            inputError("请输入朋友分享的 12 位房间码。")
             return
         }
+        disconnect()
         displayName = RelayProtocol.displayName(displayName)
         self.action = action; endpoint = url; wanted = true
         room = action == "join" ? code : ""
         retryCount = 0; recentIDs.removeAll(); nextSend = .distantPast
         open()
+    }
+    private func inputError(_ message: String) {
+        if isActive { status = message }
+        else { terminal(message) }
     }
     func disconnect() {
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil

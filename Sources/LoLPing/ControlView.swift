@@ -119,9 +119,13 @@ struct ControlView: View {
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("房间码").font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                    TextField("4-8 位数字/字母，和朋友填一样的", text: $model.lanRoomDraft)
-                        .textFieldStyle(.roundedBorder).focused($focusedField, equals: .room)
-                        .onSubmit { model.commitLANDrafts() }.accessibilityLabel("房间码")
+                    HStack(spacing: 6) {
+                        TextField("4-8 位数字/字母，和朋友填一样的", text: $model.lanRoomDraft)
+                            .textFieldStyle(.roundedBorder).focused($focusedField, equals: .room)
+                            .onSubmit { model.commitLANDrafts() }.accessibilityLabel("房间码")
+                        Button("粘贴") { model.pasteLANRoomCode() }
+                            .controlSize(.small).accessibilityLabel("粘贴局域网房间码")
+                    }
                 }
             }
             HStack(spacing: 6) {
@@ -227,17 +231,22 @@ private struct RelayControlView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("昵称").font(.system(size: 11)).foregroundStyle(Palette.secondary)
                     TextField("朋友看到的名字", text: $relay.displayName)
-                        .textFieldStyle(.roundedBorder).accessibilityLabel("服务器联机昵称")
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("服务器联机昵称").disabled(relay.isActive)
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("房间码").font(.system(size: 11)).foregroundStyle(Palette.secondary)
-                    TextField("朋友分享的 12 位房间码", text: $relay.roomInput)
-                        .textFieldStyle(.roundedBorder).accessibilityLabel("服务器房间码")
+                    HStack(spacing: 6) {
+                        TextField("朋友分享的 12 位房间码", text: $relay.roomInput)
+                            .textFieldStyle(.roundedBorder).accessibilityLabel("服务器房间码")
+                        Button("粘贴") { relay.pasteRoomCode() }
+                            .controlSize(.small).accessibilityLabel("粘贴服务器房间码")
+                    }
                 }
-            }.disabled(relay.isActive)
+            }
             HStack(spacing: 10) {
                 Button("创建房间") { model.createRelayRoom() }.buttonStyle(.borderedProminent).disabled(!model.relayEnabled || relay.isActive)
-                Button("加入房间") { model.joinRelayRoom() }.buttonStyle(.bordered).disabled(!model.relayEnabled || relay.isActive)
+                Button(relay.isActive ? "切换房间" : "加入房间") { model.joinRelayRoom() }.buttonStyle(.bordered)
+                    .disabled(!model.relayEnabled || (relay.isActive && RelayProtocol.roomCode(relay.roomInput) == relay.room))
                 if !relay.room.isEmpty {
                     Button("复制房间码") {
                         NSPasteboard.general.clearContents()

@@ -280,6 +280,15 @@ final class AppModel: ObservableObject {
         defaults.set(next, forKey: "lanRoomCode")
         restartLAN()
     }
+    func pasteLANRoomCode(from pasteboard: NSPasteboard = .general) {
+        guard let text = pasteboard.string(forType: .string),
+              !LANProtocol.normalizeRoomCode(text).isEmpty else {
+            showNotice("剪贴板中没有房间码")
+            return
+        }
+        lanRoomDraft = LANProtocol.normalizeRoomCode(text)
+        commitLANDrafts()
+    }
     /// A blue ping at the center of the main screen, for both sides to check the
     /// connection without Accessibility. Shown here with our own nickname.
     func sendTestSignal() {

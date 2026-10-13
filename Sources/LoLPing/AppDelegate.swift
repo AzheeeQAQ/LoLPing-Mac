@@ -61,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(.separator())
         submenu.addItem(withTitle: "退出 LoLPing", action: #selector(quit), keyEquivalent: "q").target = self
         application.submenu = submenu; menu.addItem(application)
+        // Native text fields route Command shortcuts through the main menu's
+        // responder chain, including while the app runs as a menu bar accessory.
+        menu.addItem(TextEditingMenu.item())
         NSApp.mainMenu = menu
     }
     private func buildStatusMenu() {

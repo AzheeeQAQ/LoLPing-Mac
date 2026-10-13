@@ -66,6 +66,20 @@ enum FeatureChecks {
         let peer = RelayClient(defaults: nil)
         peer.serverAddress = endpoint; peer.displayName = "开关测试乙"
         defer { model.shutdown(); peer.disconnect(); spin(0.2) }
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        clipboard.setString(" abcd-efgh-jklm \n", forType: .string)
+        model.relay.pasteRoomCode(from: clipboard)
+        check(model.relay.roomInput == "ABCDEFGHJKLM" && !model.relay.isActive, "paste formatted room without joining")
+        clipboard.clearContents(); clipboard.setString("not a room", forType: .string)
+        model.relay.pasteRoomCode(from: clipboard)
+        check(model.relay.roomInput == "ABCDEFGHJKLM", "invalid clipboard preserves entered room")
+        clipboard.clearContents(); model.relay.pasteRoomCode(from: clipboard)
+        check(model.relay.roomInput == "ABCDEFGHJKLM", "empty clipboard preserves entered room")
+        clipboard.setString(" 91\n37 ", forType: .string)
+        model.pasteLANRoomCode(from: clipboard)
+        check(model.lanRoomCode == "9137" && model.lanRoomDraft == "9137", "paste LAN room")
+        print("PASS room paste: formatted server code, invalid/empty clipboard, no automatic join and LAN")
         check(model.chord == .controlOptionShift, "old shortcut preference migration")
         model.chord = TriggerChord(modifiers: [.option, .shift], keyCode: 49)!
         let restored = AppModel(defaults: defaults)
@@ -85,6 +99,13 @@ enum FeatureChecks {
             peer.onPing = { _, _ in received += 1 }
             model.sendRelayTest(); wait { received == 1 }
             check(received == 1, "enabled relay must send")
+            let originalRoom = model.relay.room
+            clipboard.clearContents(); clipboard.setString("ABCD-EFGH-JKLM", forType: .string)
+            model.relay.pasteRoomCode(from: clipboard)
+            check(model.relay.isActive && model.relay.room == originalRoom && model.relay.roomInput == "ABCDEFGHJKLM", "connected paste edits without leaving room")
+            model.relay.roomInput = "bad"; model.joinRelayRoom(); spin(0.1)
+            check(model.relay.state == .connected && model.relay.room == originalRoom && peer.peers.count == 2, "invalid switch input preserves active room")
+            model.relay.roomInput = originalRoom
             model.relay.reconnectAfterWake()
             model.relayEnabled = false
             spin(1.4)
@@ -93,6 +114,18 @@ enum FeatureChecks {
             check(received == 1, "disabled relay must not send")
             wait { peer.peers.count == 1 }
             check(peer.peers.count == 1, "off must free the room seat")
+            let otherHost = RelayClient(defaults: nil)
+            otherHost.serverAddress = endpoint; otherHost.displayName = "切房测试"
+            defer { otherHost.disconnect() }
+            otherHost.createRoom(); wait { otherHost.state == .connected }
+            model.relayEnabled = true; model.relay.roomInput = originalRoom; model.joinRelayRoom()
+            wait { model.relay.state == .connected && peer.peers.count == 2 }
+            clipboard.clearContents(); clipboard.setString(otherHost.formattedRoom, forType: .string)
+            model.relay.pasteRoomCode(from: clipboard); model.joinRelayRoom()
+            wait { model.relay.state == .connected && model.relay.room == otherHost.room && otherHost.peers.count == 2 && peer.peers.count == 1 }
+            check(model.relay.room == otherHost.room && peer.peers.count == 1, "explicit room switch frees old seat and joins pasted room")
+            model.relayEnabled = false
+            print("PASS connected room paste: no automatic switch, invalid input preserves room, explicit switch joins new room")
         }
         model.relayEnabled = true
         model.lanEnabled = true
