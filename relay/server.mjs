@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, timingSafeEqual, createHash } from 'node:crypt
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
+import { GalleryStore, validAssetID } from './gallery.mjs';
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVision', 'missing', 'enemyVision', 'generic']);
@@ -23,11 +24,14 @@ const validName = (value) => typeof value === 'string' && value.trim().length > 
   Array.from(value).length <= 24 && !/[\u0000-\u001f\u007f]/.test(value);
 
 export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections = 1000, heartbeatMs = 25_000,
-  trustProxy = false, maxConnectionsPerAddress = 20 } = {}) {
-  for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress]) {
+  trustProxy = false, maxConnectionsPerAddress = 20, galleryDirectory = null, maxGalleryItems = 500,
+  galleryUploadsPerMinute = 12 } = {}) {
+  for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress, galleryUploadsPerMinute]) {
     if (!Number.isInteger(value) || value < 1) throw new Error('Relay limits must be positive integers');
   }
   const rooms = new Map();
+  const gallery = galleryDirectory ? new GalleryStore(galleryDirectory, { maxItems: maxGalleryItems, validate: validEmote }) : null;
+  const uploadWindows = new Map();
   const byAddress = new Map();
   const server = http.createServer((req, res) => {
     const healthy = req.url === '/health' && req.method === 'GET';
@@ -75,7 +79,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   wss.on('connection', (ws, req) => {
     const address = ws.clientAddress;
     byAddress.set(address, (byAddress.get(address) ?? 0) + 1);
-    let room, member, alive = true, tokens = 12, lastRefill = Date.now(), byteTokens = 131_072, lastEmote = 0;
+    let room, member, galleryOnly = false, alive = true, tokens = 12, lastRefill = Date.now(), byteTokens = 131_072, lastEmote = 0;
     const authTimer = setTimeout(() => reject(ws, 'hello_timeout', '连接超时，请重新连接。'), 8000);
     authTimer.unref();
     ws.on('error', () => {}); // Malformed/oversized frames must not crash the relay.
@@ -99,6 +103,34 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       if (binary || !packet || typeof packet !== 'object' || Array.isArray(packet)) {
         reject(ws, 'invalid_message', '只支持 JSON 文本消息。'); return;
       }
+      if (typeof packet.type === 'string' && packet.type.startsWith('gallery_')) {
+        if (!validUUID(packet.requestID)) { reject(ws, 'invalid_request', '请求编号无效。'); return; }
+        if (!member) { galleryOnly = true; clearTimeout(authTimer); }
+        const response = { type: 'gallery_result', requestID: packet.requestID };
+        try {
+          if (!gallery) throw Object.assign(new Error('服务器尚未启用公共图片库，请更新服务器。'), { code: 'gallery_disabled' });
+          switch (packet.type) {
+          case 'gallery_list': Object.assign(response, gallery.list(packet.cursor ?? 0)); break;
+          case 'gallery_get': Object.assign(response, gallery.get(packet.id)); break;
+          case 'gallery_upload': {
+            if (!validName(packet.uploader)) throw Object.assign(new Error('上传昵称无效。'), { code: 'invalid_name' });
+            if (!validAssetID(packet.ownerToken)) throw Object.assign(new Error('上传凭证无效。'), { code: 'not_owner' });
+            let window = uploadWindows.get(address);
+            if (!window || now-window.start >= 60_000) { window = { start: now, count: 0 }; uploadWindows.set(address, window); }
+            if (window.count >= galleryUploadsPerMinute) throw Object.assign(new Error('上传太快，请稍后再上传。'), { code: 'rate_limited' });
+            window.count += 1;
+            Object.assign(response, gallery.upload(packet.emote, packet.uploader.trim(), packet.ownerToken)); break;
+          }
+          case 'gallery_delete': Object.assign(response, gallery.remove(packet.id, packet.ownerToken)); break;
+          default: throw Object.assign(new Error('公共库请求无效。'), { code: 'invalid_request' });
+          }
+        } catch (error) {
+          response.code = error.code && ['gallery_disabled','invalid_cursor','invalid_asset','asset_missing','invalid_emote','gallery_full','not_owner','invalid_name','rate_limited','invalid_request'].includes(error.code) ? error.code : 'storage_failed';
+          response.message = response.code === 'storage_failed' ? '保存图片失败，请稍后重试。' : error.message;
+        }
+        send(ws, response); return;
+      }
+      if (galleryOnly) { reject(ws, 'invalid_request', '此连接只用于公共图片库。'); return; }
       if (!member) {
         if (packet.type !== 'hello' || packet.version !== 1 || !validName(packet.name)) {
           reject(ws, 'invalid_hello', '协议或名字不正确，请更新客户端。'); return;
@@ -180,7 +212,10 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       }
     });
   });
-  const sweep = setInterval(() => { for (const room of rooms.values()) prune(room); }, Math.min(graceMs, 5000));
+  const sweep = setInterval(() => {
+    for (const room of rooms.values()) prune(room);
+    for (const [address, window] of uploadWindows) if (Date.now()-window.start >= 60_000) uploadWindows.delete(address);
+  }, Math.min(graceMs, 5000));
   const heartbeat = setInterval(() => { for (const ws of wss.clients) ws.checkAlive(); }, heartbeatMs);
   sweep.unref(); heartbeat.unref();
   return {
@@ -202,7 +237,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 8787);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be between 1 and 65535');
-  const relay = createRelay({ trustProxy: process.env.TRUST_PROXY === '1' });
+  const relay = createRelay({ trustProxy: process.env.TRUST_PROXY === '1', galleryDirectory: process.env.GALLERY_DIRECTORY || null });
   await relay.listen(port, process.env.HOST ?? '127.0.0.1');
   console.log(`LoLPing relay listening on port ${port}; protocol 1`);
   let stopping = false;

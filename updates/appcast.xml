@@ -6,6 +6,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.8.0</title>
+            <pubDate>Tue, 13 Oct 2026 01:46:42 -0700</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.8.0：服务器公共图片库
+
+• 在统一轮盘中新增“公共图片库”，开启服务器联机即可使用，无需加入房间。
+• 主动上传自己的图片后，所有连接同一服务器的人都能浏览、下载和放入轮盘。
+• 图片长期保存在服务器，重启后保留。私人图片不会自动上传。
+• 保存公共图片后可离线使用；上传者可删除服务器副本，别人已下载的副本仍保留。
+• 相同图片去重，保留原上传者的删除权限。原轮盘、快捷键和私人房间传图功能保留。
+• 此服务器已升级，仍使用原来的加密地址和 28787 端口。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.8.0/downloads/LoLPing-v1.8.0-update-macOS-universal.zip" length="5634522" type="application/octet-stream" sparkle:edSignature="2tOhRg65/qwIPoNu8Dod2LkrwbDSUHFTx7F5902smiQlBg+e1qdw2ayUQl63rC9uOXk7sNW9xtGWBcfnFuBRCw=="/>
+        </item>
+        <item>
             <title>1.7.0</title>
             <pubDate>Tue, 13 Oct 2026 01:21:28 -0700</pubDate>
             <sparkle:version>10</sparkle:version>
@@ -43,6 +60,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: UZ05jKz6Ytm1FG0Xet7Mgvv/1i/ttaiqco4ngVn0B2ZV4FSaFmPiKjssSpYdkOToNoZIZTAHhlKAch4+mTqJBw==
-length: 3331
+edSignature: s0vraDsAs9JL6f0BJIwNkz/RbYPorH8lGvEbIEp03NAk6ayOSr/6ZPpwtuh0mwyV3nSCZB2KpX2cvoV5njAKCA==
+length: 4721
 -->

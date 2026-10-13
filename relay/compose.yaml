@@ -5,8 +5,11 @@ services:
     init: true
     environment:
       TRUST_PROXY: "1"
+      GALLERY_DIRECTORY: /data/gallery
     expose:
       - "8787"
+    volumes:
+      - gallery_data:/data/gallery
     mem_limit: 256m
     read_only: true
     cap_drop: [ALL]
@@ -35,5 +38,6 @@ services:
         max-size: "10m"
         max-file: "3"
 volumes:
+  gallery_data:
   caddy_data:
   caddy_config:

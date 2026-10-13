@@ -6,9 +6,15 @@ services:
     init: true
     environment:
       TRUST_PROXY: "1"
+      GALLERY_DIRECTORY: /data/gallery
     ports:
       - "127.0.0.1:8787:8787"
+    volumes:
+      - gallery_data:/data/gallery
     mem_limit: 256m
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+
+volumes:
+  gallery_data:

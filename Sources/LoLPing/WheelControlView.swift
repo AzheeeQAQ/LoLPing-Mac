@@ -7,6 +7,7 @@ struct WheelControlView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var library: EmoteLibrary
     @State private var selectedSlot = 0
+    @State private var showingGallery = false
     @State private var category = "全部"
     @State private var search = ""
     @State private var renaming: CustomEmote?
@@ -56,6 +57,8 @@ struct WheelControlView: View {
             HStack {
                 Text("替换「\(WheelLayout.positions[selectedSlot])」").font(.system(size: 12, weight: .semibold))
                 Spacer()
+                Button("公共图片库…") { showingGallery = true }.controlSize(.small).disabled(!model.relayEnabled)
+                    .help("开启服务器联机后，浏览与分享公共图片，无需加入房间。")
                 Button("添加图片…") { library.chooseImages(forSlot: selectedSlot); category = "我的图片" }.controlSize(.small)
             }
             Picker("内容类别", selection: $category) {
@@ -82,6 +85,11 @@ struct WheelControlView: View {
                             .contextMenu {
                                 Button("试用") { model.previewWheelContent(item) }
                                 if case .emote(let id) = item, let custom = library.items.first(where: { $0.id == id }) {
+                                    Button("上传到公共库") {
+                                        model.gallery.configure(model.relay.serverAddress)
+                                        if let payload = library.payload(id) { model.gallery.upload(payload, uploader: model.relay.displayName) }
+                                        showingGallery = true
+                                    }.disabled(!model.relayEnabled)
                                     Button("重命名…") { renaming = custom; draftName = custom.name }
                                     Button("删除图片", role: .destructive) { library.remove(id) }
                                 }
@@ -98,6 +106,9 @@ struct WheelControlView: View {
             .onDrop(of: [UTType.fileURL], isTargeted: $dropTargeted) { providers in
                 if WheelDrop.importFiles(providers, library: library, slot: selectedSlot) { category = "我的图片"; return true }
                 return false
+            }
+            .sheet(isPresented: $showingGallery) {
+                GalleryView(model: model, library: library, gallery: model.gallery, relay: model.relay, slot: selectedSlot)
             }
             .sheet(item: $renaming) { _ in
                 VStack(alignment: .leading, spacing: 18) {

@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(chord.rawValue, forKey: "triggerChord"); restartInputIfNeeded() }
     }
     let emotes: EmoteLibrary
+    let gallery: GalleryClient
     @Published var volume: Double {
         didSet { defaults.set(volume, forKey: "volume") }
     }
@@ -19,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published var relayEnabled: Bool {
         didSet {
             defaults.set(relayEnabled, forKey: "relayEnabled")
+            if !relayEnabled { gallery.disconnect() }
             if relayEnabled {
                 if lanEnabled { lanEnabled = false }
             } else {
@@ -74,6 +76,7 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard, emoteDirectory: URL? = nil) {
         self.defaults = defaults
+        gallery = GalleryClient(defaults: defaults)
         emotes = EmoteLibrary(directory: emoteDirectory)
         relay = RelayClient(defaults: defaults)
         let savedChord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
@@ -197,6 +200,7 @@ final class AppModel: ObservableObject {
     func cancelEffects() { input.cancelCurrent(); overlay.clear(); sound.stopAll(); stopPreview() }
     func clearTeammateEffects() { overlay.clearTeammates(); teammateSound.stopAll() }
     func shutdown() {
+        gallery.disconnect()
         // Preserve the user's enabled preference across an intentional app quit.
         permissionTimer?.invalidate(); input.stop(); overlay.clear(); sound.stopAll(); stopPreview()
         lan.stop(); relay.disconnect(); clearTeammateEffects()

@@ -126,3 +126,19 @@ npm start
 部署依赖说明：[Caddy reverse_proxy 官方文档](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)，[ws 官方版本记录](https://github.com/websockets/ws/releases)。
 
 此实例的专用连接使用 Network.framework 的 TLS WebSocket，TLS 最低版本为 1.2，并用指定 CA 验证证书链、IP 与有效期。App 的 ATS 保持默认，未添加 HTTP 例外。参考 [Apple WebSocket 文档](https://developer.apple.com/documentation/network/nwprotocolwebsocket) 和 [Apple 信任锚文档](https://developer.apple.com/documentation/security/sectrustsetanchorcertificates(_:_:))。
+
+## 公共图片库（1.8.0）
+
+使用原有 `/ws` 和 HTTPS 端口，无新增公开文件服务或端口。客户端明确上传才保存到公共库；任何连接此服务器的客户端可浏览与下载，无需加入信号房间。原有 Ping 与图片房间协议兼容，私人房间不会被转换为公开广播。
+
+`GALLERY_DIRECTORY=/data/gallery` 启用持久图库；不设置时返回 `gallery_disabled`。三份 Compose 配置均挂载 `gallery_data`，固定 `-p lolping` 部署时实际卷名为 `lolping_gallery_data`。容器仍使用 node 用户、只读根文件系统与移除 capabilities，仅这个数据卷可写。默认 500 张，每张不超过 32 KB / 160 像素，每个来源地址每分钟 12 次上传。图库按内容 SHA-256 去重，分页每次最多 50 条；索引原子写入，图片及索引在容器重建、服务重启后保留。
+
+`gallery_list` / `gallery_get` / `gallery_upload` / `gallery_delete` 携带 UUID `requestID`，响应为对应 `gallery_result`。上传需带名称、上传昵称、现有 `EmotePayload` 和 64 位十六进制的删除凭证；客户端先保存凭证，保证超时重试仍有所有权。服务端只保存凭证哈希，不在公共列表或下载响应中返回。已存在的图片保留原名称、原上传者和原删除权限。删除需匹配原凭证；在客户端删除私人副本不会自动删除公共图片。
+
+备份时同时备份 `gallery_data` 和原有 Caddy 证书卷。不要使用 `docker compose down -v`，这会删除持久卷。信号房间仍保存在内存，服务重启后需重新创建。
+
+```sh
+npm test
+# 创建并清理合成公共图片，验证生产 Swift 客户端；不读取私人图片：
+../dist/LoLPing.app/Contents/MacOS/LoLPing --gallery-check ws://127.0.0.1:8787/ws /tmp/lolping-gallery-check
+```

@@ -113,6 +113,23 @@ final class EmoteLibrary: ObservableObject {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(Manifest(items: items, slots: slots, wheel: wheel.map(\.rawValue))).write(to: directory.appendingPathComponent("library.json"), options: .atomic)
     }
+    /// Preserve the server's verified PNG/hash exactly; importing already known
+    /// images only assigns them and does not consume another personal slot.
+    @discardableResult func importShared(_ payload: EmotePayload, into slot: Int) -> Bool {
+        guard wheel.indices.contains(slot), Self.decode(payload) != nil else { notice = "公共库图片校验失败。"; return false }
+        if isKnown(payload.id) { return setSlot(.emote(payload.id), at: slot) }
+        guard items.count < 24 else { notice = "我的图片已满（24 张），请先删除一张。"; return false }
+        let oldItems = items, oldWheel = wheel
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try payload.png.write(to: file(payload.id)!, options: .atomic)
+            items.append(CustomEmote(id: payload.id, name: payload.name)); wheel[slot] = .emote(payload.id)
+            try save(); notice = "已保存「\(payload.name)」并放入「\(WheelLayout.positions[slot])」，离线也可使用。"; return true
+        } catch {
+            items = oldItems; wheel = oldWheel; try? FileManager.default.removeItem(at: file(payload.id)!)
+            notice = "保存图片失败：\(error.localizedDescription)"; return false
+        }
+    }
     func chooseImages(forSlot slot: Int? = nil) {
         let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         panel.allowedContentTypes = [.png, .jpeg, .gif, UTType("org.webmproject.webp") ?? .image]
