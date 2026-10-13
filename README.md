@@ -10,6 +10,14 @@
 
 双方使用 1.4.0 安装包，打开“服务器联机”开关，一人创建房间，另一人填 12 位房间码加入。该私有证书信任只对内置的服务器 IP 与端口生效，仍验证证书链、IP 地址和有效期；其他服务器沿用系统 HTTPS 校验。
 
+## 完整安装包
+
+[下载 1.4.0 完整 PKG 安装包](downloads/LoLPing-v1.4.0-complete-macOS-universal.pkg)。双击后按 macOS 安装向导操作，固定安装到 `/Applications/LoLPing.app`，自动备份并原子替换旧版，保留个人设置。旧版备份在 `/Library/Application Support/LoLPing/InstallerBackups`。
+
+安装包包含全部图标、动画、音效、服务器公开根证书及预填地址，无需另外安装运行环境。通过快捷键发送时需使用者手动允许辅助功能。若旧授权开关已打开但仍提示未授权，移除旧条目，重新添加 `/Applications/LoLPing.app` 并允许，然后重新打开 App。
+
+当前 PKG 尚未使用 Apple Developer ID 签名或公证；若 macOS 拦截，请在“系统设置 → 隐私与安全性”对该安装包允许打开。安装程序不会自动修改系统隐私权限。
+
 ## 跨网络联机
 
 1. 先按 [服务器部署说明](relay/README.md) 部署中继。
@@ -57,7 +65,8 @@ npm run test:swift       # 真实生产版 Swift 客户端集成检查
 # 从仓库根目录检查联机开关和按键路由（仅创建临时测试房间）：
 # dist/LoLPing.app/Contents/MacOS/LoLPing --feature-check wss://18.236.249.217:28787/ws
 cd ..
-zsh scripts/package.sh   # 通用安装包：dist/LoLPing-v1.4.0-server-macOS-universal.zip
+zsh scripts/package.sh   # 通用 App 和 ZIP
+zsh scripts/package-installer.sh  # 完整 PKG：固定安装路径、旧版备份和授权引导
 ```
 
 源码包括 `Sources/LoLPing/RelayClient.swift`、`Sources/PingCore/RelayProtocol.swift` 及整个 `relay/` 目录。网络中只转发信号类型、事件 ID 和发送者，不同步桌面、鼠标位置或按键内容。中继只在内存中保存房间；重启后需重新创建房间，断线期间的信号不补播。房间最多两人，掉线成员席位保留 60 秒。

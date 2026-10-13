@@ -1,0 +1,34 @@
+#!/bin/bash
+set -euo pipefail
+target_volume="${3:-/}"
+app_path="${target_volume%/}/Applications/LoLPing.app"
+
+# Stop all old copies only when installing onto the running system. TERM gives
+# the App its normal opportunity to exit; no unrelated processes are stopped.
+if [ "$target_volume" = / ]; then
+    /usr/bin/pkill -TERM -x LoLPing 2>/dev/null || true
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if ! /usr/bin/pgrep -x LoLPing >/dev/null 2>&1; then break; fi
+        /bin/sleep 0.5
+    done
+    if /usr/bin/pgrep -x LoLPing >/dev/null 2>&1; then
+        echo "LoLPing 仍在运行，请从菜单栏退出后重新安装。" >&2
+        exit 1
+    fi
+fi
+
+if [ -d "$app_path" ]; then
+    existing_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app_path/Contents/Info.plist" 2>/dev/null || true)
+    if [ "$existing_id" != local.allentu.LoLPing ]; then
+        echo "安装位置存在另一个应用，请先检查 /Applications/LoLPing.app。" >&2
+        exit 1
+    fi
+    backup_base="${target_volume%/}/Library/Application Support/LoLPing/InstallerBackups"
+    backup_dir="$backup_base/$(/bin/date -u +%Y%m%d-%H%M%S)-$$"
+    /bin/mkdir -p "$backup_dir"
+    /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$backup_dir/LoLPing-before-install.zip"
+    echo "旧版已备份：$backup_dir/LoLPing-before-install.zip"
+fi
+# Installer's BundleOverwriteAction=upgrade atomically replaces the old bundle.
+# This script does not remove the old App or change privacy permissions.
+exit 0

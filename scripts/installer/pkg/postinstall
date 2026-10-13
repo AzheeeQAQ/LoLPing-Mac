@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+target_volume="${3:-/}"
+app_path="${target_volume%/}/Applications/LoLPing.app"
+/usr/bin/codesign --verify --deep --strict "$app_path"
+installed_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app_path/Contents/Info.plist")
+test "$installed_id" = local.allentu.LoLPing
+"$app_path/Contents/MacOS/LoLPing" --check-assets
+
+# Open only as the logged-in desktop user, never as root. First-time privacy
+# permission remains the user's action in System Settings.
+if [ "$target_volume" = / ]; then
+    console_uid=$(/usr/bin/stat -f '%u' /dev/console)
+    if [ "$console_uid" -ge 500 ]; then
+        /bin/launchctl asuser "$console_uid" /usr/bin/sudo -u "#$console_uid" \
+            /usr/bin/open "$app_path" || echo "安装已完成，请从应用程序打开 LoLPing。"
+    fi
+fi
+exit 0
