@@ -13,13 +13,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var relayStateItem: NSMenuItem!
     private var relayItem: NSMenuItem!
     private var leaveRelayItem: NSMenuItem!
+    private var updateItem: NSMenuItem!
+    private var mainUpdateItem: NSMenuItem!
     let model = AppModel()
+    private let updates = AppUpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         buildMainMenu()
         buildStatusMenu()
-        let controller = NSHostingController(rootView: ControlView(model: model))
+        let controller = NSHostingController(rootView: ControlView(model: model, updates: updates))
         window = NSWindow(contentViewController: controller)
         window.title = "LoLPing · 桌面信号"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
@@ -34,6 +37,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.onStateChange = { [weak self] in self?.updateStatus() }
         model.restoreState(); updateStatus()
         showWindow()
+        updates.onStateChange = { [weak self] in
+            guard let self else { return }
+            self.updateItem.title = self.updates.buttonTitle
+            self.mainUpdateItem.title = self.updates.buttonTitle
+        }
+        updates.start()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showWindow(); return true }
@@ -58,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let application = NSMenuItem()
         let submenu = NSMenu(title: "LoLPing")
         submenu.addItem(withTitle: "打开控制窗口", action: #selector(showWindow), keyEquivalent: ",").target = self
+        mainUpdateItem = submenu.addItem(withTitle: updates.buttonTitle, action: #selector(AppUpdateController.checkForUpdates(_:)), keyEquivalent: "")
+        mainUpdateItem.target = updates
         submenu.addItem(.separator())
         submenu.addItem(withTitle: "退出 LoLPing", action: #selector(quit), keyEquivalent: "q").target = self
         application.submenu = submenu; menu.addItem(application)
@@ -93,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         muteItem = NSMenuItem(title: "静音队友", action: #selector(toggleMuteTeammates), keyEquivalent: "")
         muteItem.target = self; menu.addItem(muteItem)
         menu.addItem(.separator())
+        updateItem = NSMenuItem(title: updates.buttonTitle, action: #selector(AppUpdateController.checkForUpdates(_:)), keyEquivalent: "")
+        updateItem.target = updates; menu.addItem(updateItem)
         menu.addItem(withTitle: "退出 LoLPing", action: #selector(quit), keyEquivalent: "").target = self
         statusItem.menu = menu
     }

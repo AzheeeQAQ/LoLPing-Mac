@@ -6,66 +6,44 @@ struct ShortcutEditor: View {
     @ObservedObject var model: AppModel
     let forEmotes: Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var modifiers: Modifiers
-    @State private var keyCode: Int
-
-    init(model: AppModel, forEmotes: Bool = false) {
-        self.model = model; self.forEmotes = forEmotes
-        let chord = forEmotes ? model.emoteChord : model.chord
-        _modifiers = State(initialValue: chord.modifiers)
-        _keyCode = State(initialValue: chord.keyCode ?? -1)
+    @StateObject private var recorder = ShortcutRecorder()
+    @State private var resetConflict = false
+    init(model: AppModel, forEmotes: Bool = false) { self.model = model; self.forEmotes = forEmotes }
+    private var chord: TriggerChord { forEmotes ? model.emoteChord : model.chord }
+    private func save(_ selection: TriggerChord) -> Bool {
+        guard !selection.conflicts(with: forEmotes ? model.chord : model.emoteChord) else { return false }
+        if forEmotes { model.emoteChord = selection } else { model.chord = selection }
+        return true
     }
-    private var selection: TriggerChord? {
-        TriggerChord(modifiers: modifiers, keyCode: keyCode == -1 ? nil : keyCode)
-    }
-    private var conflict: Bool {
-        guard let selection else { return false }
-        return selection.conflicts(with: forEmotes ? model.chord : model.emoteChord)
-    }
-    private func binding(_ modifier: Modifiers) -> Binding<Bool> {
-        Binding(get: { modifiers.contains(modifier) }, set: {
-            if $0 { modifiers.insert(modifier) } else { modifiers.remove(modifier) }
-        })
-    }
+    private func record() { resetConflict = false; recorder.start(accept: save) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             Text(forEmotes ? "表情组合键" : "自定义组合键").font(.system(size: 19, weight: .semibold))
-            Text("选择修饰键，可再搭配一个按键。设置期间暂停全局快捷键。")
+            Text("直接按下想用的按键，全部松开后自动记住。")
                 .font(.system(size: 12)).foregroundStyle(.secondary)
-            HStack(spacing: 18) {
-                Toggle("⌃ Control", isOn: binding(.control))
-                Toggle("⌥ Option", isOn: binding(.option))
-                Toggle("⇧ Shift", isOn: binding(.shift))
-                Toggle("⌘ Command", isOn: binding(.command))
-            }.toggleStyle(.checkbox)
-            Picker("搭配按键", selection: $keyCode) {
-                Text("只使用修饰键").tag(-1)
-                ForEach(TriggerChord.availableKeys.indices, id: \.self) { index in
-                    Text(TriggerChord.availableKeys[index].title).tag(TriggerChord.availableKeys[index].code)
-                }
-            }.frame(width: 290).accessibilityLabel("组合键搭配按键")
-            Text(selection?.symbols ?? "请选择有效的组合键")
-                .font(.system(size: 24, weight: .medium)).frame(maxWidth: .infinity, minHeight: 50)
-                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
-            Text(selection == nil
-                 ? "只使用修饰键时至少选择两个；搭配普通按键时至少选择一个修饰键。"
-                 : (keyCode == -1 ? "同时按住所选修饰键，移动选择，松开发送。" : "先按住修饰键，再按住搭配按键，移动选择，松开任一键发送。"))
+            Text(recorder.isRecording ? recorder.display : chord.symbols)
+                .font(.system(size: 24, weight: .medium)).frame(maxWidth: .infinity, minHeight: 64)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityLabel("录入组合键 \(recorder.isRecording ? recorder.display : chord.symbols)")
+            Text(resetConflict ? "默认组合键和另一套快捷键重叠，请先修改另一套。" : recorder.message)
+                .font(.system(size: 12)).foregroundStyle(resetConflict ? .orange : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("支持单键、多个按键及修饰键组合，包含 F 键、小键盘、Esc、Fn 和 Caps Lock。录入期间暂停全局信号。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if conflict { Text("表情和 Ping 组合键重叠，请换一组修饰键或搭配按键。").font(.system(size: 11)).foregroundStyle(.orange) }
-            Text("Esc 或右键取消信号。建议避开游戏和系统已有的快捷键；F 键可能需配合 Fn。")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("选中的按键会用于全局信号；建议避开常用打字键和系统快捷键。系统独占或未传递给应用的按键无法录入。")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Button("恢复默认") { modifiers = (forEmotes ? TriggerChord.controlOptionShift : TriggerChord.controlOptionCommand).modifiers; keyCode = -1 }
+                Button("恢复默认") {
+                    recorder.stop(); resetConflict = !save(forEmotes ? .controlOptionShift : .controlOptionCommand)
+                }.buttonStyle(.bordered)
+                Button("重新录入") { record() }.buttonStyle(.bordered)
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("保存") {
-                    if let selection { if forEmotes { model.emoteChord = selection } else { model.chord = selection }; dismiss() }
-                }.buttonStyle(.borderedProminent).disabled(selection == nil || conflict).keyboardShortcut(.defaultAction)
-            }
-        }.padding(26).frame(width: 550)
+                Button("完成") { dismiss() }.buttonStyle(.borderedProminent)
+            }.controlSize(.small)
+        }.padding(26).frame(width: 500)
             .background(Color(red: 0.065, green: 0.090, blue: 0.120))
             .preferredColorScheme(.dark).tint(Color(red: 0.83, green: 0.70, blue: 0.44))
-            .onAppear { model.beginShortcutEditing() }
-            .onDisappear { model.endShortcutEditing() }
+            .onAppear { model.beginShortcutEditing(); record() }
+            .onDisappear { recorder.stop(); model.endShortcutEditing() }
     }
 }

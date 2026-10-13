@@ -11,6 +11,7 @@ private enum Palette {
 
 struct ControlView: View {
     @ObservedObject var model: AppModel
+    var updates: AppUpdateController? = nil
     private enum LANField: Hashable { case nickname, room }
     @FocusState private var focusedField: LANField?
     @State private var editingShortcut = false
@@ -24,6 +25,7 @@ struct ControlView: View {
                 RelayControlView(model: model, relay: model.relay)
                 lanCard
                 previewCard
+                if let updates { AppUpdateView(updates: updates) }
                 footer
             }.padding(26)
         }
@@ -95,7 +97,7 @@ struct ControlView: View {
                     Slider(value: $model.scale, in: 0.75...1.5, step: 0.05).accessibilityLabel("效果大小")
                 }
             }
-            Text("按住 0.18 秒 → 移动选择 → 松开发送　 ·　 Esc / 右键取消")
+            Text("按住 0.18 秒 → 移动选择 → 松开发送　 ·　 \(model.chord.keyCodes.contains(53) ? "右键取消" : "Esc / 右键取消")")
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }.padding(16).card()
             .sheet(isPresented: $editingShortcut) { ShortcutEditor(model: model) }

@@ -56,6 +56,57 @@ enum FeatureChecks {
         check(!key(11, down: false, modifiers: []), "unrelated key up must pass through")
         input.stop()
         print("PASS event routing: repeat, balanced key events, both release orders, Escape, short press and ordinary typing")
+        input.configure(chord: TriggerChord(modifiers: [.command], keyCodes: [0,11,76,117])!)
+        flags(.maskCommand)
+        for code: CGKeyCode in [76,117,0,11] { check(key(code, down: true, modifiers: .maskCommand), "multi-key prefix is balanced and swallowed") }
+        spin(0.23)
+        let beforeMultiRelease = commits
+        for code: CGKeyCode in [117,76,11,0] { check(key(code, down: false, modifiers: .maskCommand), "multi-key release is balanced") }
+        flags([]); check(commits == beforeMultiRelease+1, "multi-key release commits exactly once")
+        input.stop()
+        input.configure(chord: TriggerChord(modifiers: [], keyCode: 53)!)
+        check(key(53, down: true, modifiers: []), "Escape is recordable as a trigger")
+        spin(0.23); let beforeEscapeRelease = commits
+        check(key(53, down: false, modifiers: []), "configured Escape release is balanced")
+        check(commits == beforeEscapeRelease+1, "configured Escape sends rather than cancels")
+        input.stop()
+        var specials: Modifiers = []
+        let specialInput = GlobalInput(mouseButtonsDown: { false }, specialKeysDown: { specials })
+        var specialCommits = 0
+        specialInput.onAction = { if case .commit = $0 { specialCommits += 1 } }
+        for modifier: Modifiers in [.function, .capsLock] {
+            specialInput.stop(); specialInput.configure(chord: TriggerChord(modifiers: modifier)!)
+            let event = CGEvent(source: nil)!; event.flags = .maskAlphaShift
+            _ = specialInput.process(.flagsChanged, event)
+            check(specialInput.machine.phase == .idle, "latched Caps flag alone must not trigger a physical key")
+            specials = modifier; _ = specialInput.process(.flagsChanged, event); spin(0.23)
+            specials = []; _ = specialInput.process(.flagsChanged, event)
+        }
+        check(specialCommits == 2, "physical Fn/Caps pressed and released exactly once")
+        specialInput.stop()
+        for (code, modifier): (CGKeyCode, Modifiers) in [(63, .function), (57, .capsLock)] {
+            specialInput.configure(chord: TriggerChord(modifiers: modifier)!)
+            let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)!
+            let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)!
+            down.flags = []; up.flags = []
+            check(!specialInput.process(.keyDown, down), "special modifier driver events pass through")
+            spin(0.23)
+            check(!specialInput.process(.keyUp, up), "special modifier driver release passes through")
+            specialInput.stop()
+        }
+        check(specialCommits == 4, "Fn/Caps keyboard-driver events send exactly once")
+        input.configure(chord: TriggerChord(modifiers: [], keyCode: 65552)!)
+        let beforeMedia = commits
+        for down in [true,false] {
+            let media = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                          subtype: 8, data1: (16 << 16) | ((down ? 10 : 11) << 8), data2: -1)!
+            check(KeyboardEvent.keyChange(media)?.key == 65552, "media key decoding")
+            check(input.process(CGEventType(rawValue: 14)!, media.cgEvent!), "media trigger is balanced")
+            if down { spin(0.23) }
+        }
+        check(commits == beforeMedia+1, "media key gesture sends once")
+        input.stop()
+        print("PASS expanded event routing: multi-key prefixes/releases, Escape, media keys and physical Fn/Caps")
 
         let suite = "LoLPing-FeatureChecks-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -85,6 +136,10 @@ enum FeatureChecks {
         let restored = AppModel(defaults: defaults)
         check(restored.chord == model.chord, "custom shortcut persistence")
         restored.shutdown()
+        model.chord = TriggerChord(modifiers: [.control, .function], keyCodes: [53,76])!
+        let restoredRecording = AppModel(defaults: defaults)
+        check(restoredRecording.chord == model.chord, "recorded multi-key/Fn shortcut persists")
+        restoredRecording.shutdown()
         model.createRelayRoom(); spin(0.1)
         check(!model.relay.isActive, "disabled relay must not create a room")
         model.relayEnabled = true; model.createRelayRoom()

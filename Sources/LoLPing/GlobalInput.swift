@@ -20,12 +20,18 @@ final class GlobalInput {
     private var emoteMode = false
     var onUnavailable: (() -> Void)?
     private let mouseButtonsDown: () -> Bool
-    init(mouseButtonsDown: @escaping () -> Bool = { NSEvent.pressedMouseButtons != 0 }) { self.mouseButtonsDown = mouseButtonsDown }
+    private let specialKeysDown: () -> Modifiers
+    init(mouseButtonsDown: @escaping () -> Bool = { NSEvent.pressedMouseButtons != 0 }, specialKeysDown: @escaping () -> Modifiers = KeyboardEvent.specialKeysDown) {
+        self.mouseButtonsDown = mouseButtonsDown; self.specialKeysDown = specialKeysDown
+    }
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var timer: Timer?
-    private var keysDown: Set<Int64> = []
-    private var swallowedKeys: Set<Int64> = []
+    private var specialTimer: Timer?
+    private var keysDown: Set<Int> = []
+    private var swallowedKeys: Set<Int> = []
+    private var specialKeyEvents: Modifiers = []
+    private static let mediaEvent = CGEventType(rawValue: 14)!
     private var swallowedRight = false
     private var recoveryAttempts = 0
 
@@ -40,11 +46,11 @@ final class GlobalInput {
         guard Self.isTrusted else { throw StartError.permission }
         configure(chord: chord, emoteChord: emoteChord)
         machine.deadZone = WheelGeometry.centerRadius*scale
-        machine.reset(blockUntilRelease: !Self.modifiers(CGEventSource.flagsState(.combinedSessionState)).intersection(chord.modifiers).isEmpty)
+        machine.reset(blockUntilRelease: !modifiers(CGEventSource.flagsState(.combinedSessionState), for: chord).intersection(chord.modifiers).isEmpty)
         let types: [CGEventType] = [.flagsChanged, .keyDown, .keyUp, .mouseMoved,
                                    .leftMouseDown, .leftMouseUp, .leftMouseDragged,
                                    .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-                                   .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel]
+                                   .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel, Self.mediaEvent]
         let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         let callback: CGEventTapCallBack = { _, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
@@ -60,6 +66,15 @@ final class GlobalInput {
         source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, newTap, 0)
         if let source { CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes) }
         CGEvent.tapEnable(tap: newTap, enable: true)
+        if !chord.modifiers.intersection(.physicalSpecial).isEmpty || !(emoteChord?.modifiers.intersection(.physicalSpecial).isEmpty ?? true) {
+            let poll = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                let flags = CGEventSource.flagsState(.combinedSessionState)
+                self.selectChord(flags)
+                self.routeState(flags, at: NSEvent.mouseLocation)
+            }
+            specialTimer = poll; RunLoop.main.add(poll, forMode: .common)
+        }
     }
 
     func configure(chord: TriggerChord, emoteChord: TriggerChord? = nil) {
@@ -67,10 +82,11 @@ final class GlobalInput {
     }
     func stop() {
         timer?.invalidate(); timer = nil
+        specialTimer?.invalidate(); specialTimer = nil
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         tap = nil; source = nil
-        keysDown.removeAll(); swallowedKeys.removeAll(); swallowedRight = false; recoveryAttempts = 0
+        keysDown.removeAll(); swallowedKeys.removeAll(); specialKeyEvents = []; swallowedRight = false; recoveryAttempts = 0
         machine.reset()
     }
 
@@ -80,13 +96,48 @@ final class GlobalInput {
     }
     func setWheelCenter(_ center: CGPoint) { dispatch(machine.setWheelCenter(center)) }
 
-    private static func modifiers(_ flags: CGEventFlags) -> Modifiers {
-        var result: Modifiers = []
-        if flags.contains(.maskControl) { result.insert(.control) }
-        if flags.contains(.maskAlternate) { result.insert(.option) }
-        if flags.contains(.maskCommand) { result.insert(.command) }
-        if flags.contains(.maskShift) { result.insert(.shift) }
-        return result
+    private func modifiers(_ flags: CGEventFlags, for chord: TriggerChord) -> Modifiers {
+        KeyboardEvent.standardModifiers(flags).union(specialKeysDown().union(specialKeyEvents).intersection(chord.modifiers))
+    }
+    private func selectChord(_ flags: CGEventFlags) {
+        guard machine.phase == .idle else { return }
+        let candidates = [(false, pingChord)] + (emoteChord.map { [(true, $0)] } ?? [])
+        let matching = candidates.filter { modifiers(flags, for: $0.1) == $0.1.modifiers }
+        let selected = matching.first { $0.1.keyCodes == keysDown } ??
+            matching.first { !$0.1.keyCodes.isEmpty && keysDown.isSubset(of: $0.1.keyCodes) }
+        emoteMode = selected?.0 ?? false
+        machine.chord = selected?.1 ?? pingChord
+    }
+    private func routeState(_ flags: CGEventFlags, at point: CGPoint) {
+        dispatch(machine.inputChanged(flags: modifiers(flags, for: machine.chord), keys: keysDown, at: point,
+                                      otherInputHeld: mouseButtonsDown() || !keysDown.subtracting(machine.chord.keyCodes).isEmpty))
+    }
+    private func processKey(_ key: Int, isDown: Bool, flags: CGEventFlags, at point: CGPoint) -> Bool {
+        if let special = KeyboardEvent.specialModifier(key) {
+            if isDown { specialKeyEvents.insert(special) } else { specialKeyEvents.remove(special) }
+            selectChord(flags); routeState(flags, at: point)
+            return false
+        }
+        if isDown {
+            let repeated = keysDown.contains(key); keysDown.insert(key)
+            if swallowedKeys.contains(key) { return true }
+            selectChord(flags)
+            if machine.chord.keyCodes.contains(key) {
+                if !repeated { routeState(flags, at: point) }
+                let partial = machine.phase == .idle && modifiers(flags, for: machine.chord) == machine.chord.modifiers &&
+                    keysDown.isSubset(of: machine.chord.keyCodes) && !mouseButtonsDown()
+                if partial || machine.phase == .arming || machine.phase == .open { swallowedKeys.insert(key); return true }
+                return false
+            }
+            let active = machine.phase == .arming || machine.phase == .open
+            cancelCurrent()
+            if active && key == 53 { swallowedKeys.insert(key); return true }
+        } else {
+            keysDown.remove(key)
+            routeState(flags, at: point)
+            if swallowedKeys.remove(key) != nil { return true }
+        }
+        return false
     }
     private func point(_ event: CGEvent) -> CGPoint {
         let mainTop = NSScreen.screens.first?.frame.maxY ?? 0
@@ -102,39 +153,17 @@ final class GlobalInput {
             return false
         }
         recoveryAttempts = 0
-        if machine.phase == .idle && (type == .flagsChanged || type == .keyDown) {
-            let flags = Self.modifiers(event.flags)
-            let key = type == .keyDown ? Int(event.getIntegerValueField(.keyboardEventKeycode)) : nil
-            emoteMode = emoteChord.map { $0.modifiers == flags && ($0.keyCode == nil || $0.keyCode == key) } ?? false
-            machine.chord = emoteMode ? emoteChord! : pingChord
-        }
         switch type {
         case .flagsChanged:
-            let held = mouseButtonsDown() || !keysDown.isEmpty
-            dispatch(machine.flagsChanged(Self.modifiers(event.flags), at: point(event), otherInputHeld: held))
+            selectChord(event.flags); routeState(event.flags, at: point(event))
         case .keyDown:
-            let key = event.getIntegerValueField(.keyboardEventKeycode)
-            let repeated = keysDown.contains(key)
-            let otherHeld = mouseButtonsDown() || !keysDown.subtracting([key]).isEmpty
-            keysDown.insert(key)
-            if swallowedKeys.contains(key) { return true }
-            if machine.chord.keyCode == Int(key) {
-                guard !repeated else { return false }
-                dispatch(machine.flagsChanged(Self.modifiers(event.flags), at: point(event), otherInputHeld: otherHeld))
-                dispatch(machine.keyChanged(isDown: true, at: point(event), otherInputHeld: otherHeld))
-                if machine.phase == .arming || machine.phase == .open { swallowedKeys.insert(key); return true }
-                return false
-            }
-            let active = machine.phase == .arming || machine.phase == .open
-            cancelCurrent()
-            if active && key == 53 { swallowedKeys.insert(key); return true }
+            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: true, flags: event.flags, at: point(event))
         case .keyUp:
-            let key = event.getIntegerValueField(.keyboardEventKeycode)
-            keysDown.remove(key)
-            if machine.chord.keyCode == Int(key) {
-                dispatch(machine.keyChanged(isDown: false, at: point(event), otherInputHeld: !keysDown.isEmpty))
+            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: false, flags: event.flags, at: point(event))
+        case Self.mediaEvent:
+            if let native = NSEvent(cgEvent: event), let change = KeyboardEvent.keyChange(native) {
+                return processKey(change.key, isDown: change.down, flags: event.flags, at: point(event))
             }
-            if swallowedKeys.remove(key) != nil { return true }
         case .mouseMoved:
             dispatch(machine.moved(to: point(event)))
         case .rightMouseDown:

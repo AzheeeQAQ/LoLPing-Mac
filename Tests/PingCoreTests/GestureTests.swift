@@ -130,14 +130,14 @@ final class GestureTests {
         }
         for bits in 0...15 {
             let mods = Modifiers(rawValue: bits)
-            XCTAssertEqual(TriggerChord(modifiers: mods) != nil, bits.nonzeroBitCount >= 2)
+            XCTAssertEqual(TriggerChord(modifiers: mods) != nil, bits != 0)
             for key in TriggerChord.availableKeys {
                 let chord = TriggerChord(modifiers: mods, keyCode: key.code)
-                XCTAssertEqual(chord != nil, bits != 0)
+                XCTAssertEqual(chord != nil, true)
                 if let chord { XCTAssertEqual(TriggerChord(rawValue: chord.rawValue), chord) }
             }
         }
-        for invalid in ["v1:0:-", "v1:1:-", "v1:16:0", "v1:7:53", "v1:7:999", "v1:7:no", "v1:7:", "v2:7:0", "garbage"] {
+        for invalid in ["v1:0:-", "v1:64:0", "v1:-1:0", "v1:7:57", "v1:7:65792", "v1:7:-1", "v1:7:no", "v1:7:", "v1:7:0,1", "v2:7:0,", "v2:7:-,0", "garbage"] {
             XCTAssertEqual(TriggerChord(rawValue: invalid), nil)
         }
     }
@@ -174,9 +174,11 @@ final class GestureTests {
         let machine = GestureMachine()
         machine.chord = TriggerChord(modifiers: [.option], keyCode: 49)!
         XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [])
-        XCTAssertEqual(machine.flagsChanged([.option], at: anchor, otherInputHeld: true), [])
-        XCTAssertEqual(machine.delayElapsed(), [])
+        XCTAssertEqual(machine.flagsChanged([.option], at: anchor, otherInputHeld: false), [.arm(anchor)])
+        XCTAssertEqual(machine.delayElapsed(), [.show(anchor)])
         _ = machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false)
+        _ = machine.flagsChanged([], at: anchor, otherInputHeld: false)
+        _ = machine.flagsChanged([.option], at: anchor, otherInputHeld: false)
         XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: false), [.arm(anchor)])
         XCTAssertEqual(machine.keyChanged(isDown: false, at: anchor, otherInputHeld: false), [.hide])
         XCTAssertEqual(machine.delayElapsed(), [])
@@ -192,6 +194,63 @@ final class GestureTests {
         XCTAssertEqual(machine.keyChanged(isDown: true, at: anchor, otherInputHeld: true), [])
         XCTAssertEqual(machine.phase, .blocked)
         XCTAssertEqual(machine.delayElapsed(), [])
+    }
+    func testCapturedChordsAndExtendedKeys() {
+        for bits in 0...63 {
+            let mods = Modifiers(rawValue: bits)
+            for keys: Set<Int> in [[53], [76], [999], [65535], [65552], [0, 11, 117]] {
+                let chord = TriggerChord(modifiers: mods, keyCodes: keys)!
+                XCTAssertEqual(TriggerChord(rawValue: chord.rawValue), chord)
+                let capture = ShortcutCapture()
+                XCTAssertEqual(capture.flagsChanged(mods), nil)
+                for key in keys.sorted() { XCTAssertEqual(capture.keyChanged(key, isDown: true), nil) }
+                XCTAssertEqual(capture.candidate, chord)
+                var results: [TriggerChord] = []
+                for key in keys.sorted().reversed() { if let saved = capture.keyChanged(key, isDown: false) { results.append(saved) } }
+                if let saved = capture.flagsChanged([]) { results.append(saved) }
+                XCTAssertEqual(results, [chord])
+                XCTAssertEqual(capture.flagsChanged([]), nil)
+            }
+        }
+        let capture = ShortcutCapture()
+        _ = capture.flagsChanged([.control, .function, .capsLock])
+        _ = capture.keyChanged(0, isDown: true); _ = capture.keyChanged(11, isDown: true)
+        XCTAssertEqual(capture.flagsChanged([.function]), nil)
+        _ = capture.keyChanged(0, isDown: false); _ = capture.keyChanged(11, isDown: false)
+        XCTAssertEqual(capture.flagsChanged([]), TriggerChord(modifiers: [.control, .function, .capsLock], keyCodes: [0,11]))
+        _ = capture.keyChanged(53, isDown: true); capture.reset()
+        XCTAssertEqual(capture.keyChanged(53, isDown: false), nil)
+        XCTAssertEqual(TriggerChord(modifiers: [.control], keyCodes: [0])!.conflicts(with: TriggerChord(modifiers: [.control, .shift], keyCodes: [0,11])!), true)
+        XCTAssertEqual(TriggerChord(modifiers: [.control], keyCodes: [0,11])!.conflicts(with: TriggerChord(modifiers: [.control], keyCodes: [0,8])!), false)
+    }
+    func testMultipleKeysReleaseAndEitherPressOrder() {
+        for modifiers: Modifiers in [[], [.control], [.function], [.capsLock, .shift]] {
+            let machine = GestureMachine()
+            machine.chord = TriggerChord(modifiers: modifiers, keyCodes: [0,11,117])!
+            var held: Set<Int> = []
+            for key in [117,0] {
+                held.insert(key)
+                XCTAssertEqual(machine.inputChanged(flags: [], keys: held, at: anchor, otherInputHeld: false), [])
+            }
+            held.insert(11)
+            if !modifiers.isEmpty {
+                XCTAssertEqual(machine.inputChanged(flags: [], keys: held, at: anchor, otherInputHeld: false), [])
+            }
+            XCTAssertEqual(machine.inputChanged(flags: modifiers, keys: held, at: anchor, otherInputHeld: false), [.arm(anchor)])
+            XCTAssertEqual(machine.delayElapsed(), [.show(anchor)])
+            held.remove(0)
+            XCTAssertEqual(machine.inputChanged(flags: modifiers, keys: held, at: anchor, otherInputHeld: false), [.dismiss,.commit(.generic,anchor)])
+            held.insert(0)
+            XCTAssertEqual(machine.inputChanged(flags: modifiers, keys: held, at: anchor, otherInputHeld: false), [])
+            XCTAssertEqual(machine.inputChanged(flags: [], keys: [], at: anchor, otherInputHeld: false), [])
+            XCTAssertEqual(machine.phase, .idle)
+        }
+        for modifiers: Modifiers in [[.control], [.function], [.capsLock]] {
+            let machine = GestureMachine(); machine.chord = TriggerChord(modifiers: modifiers)!
+            XCTAssertEqual(machine.inputChanged(flags: modifiers, keys: [], at: anchor, otherInputHeld: false), [.arm(anchor)])
+            _ = machine.delayElapsed()
+            XCTAssertEqual(machine.inputChanged(flags: [], keys: [], at: anchor, otherInputHeld: false), [.dismiss,.commit(.generic,anchor)])
+        }
     }
     func testContinuousDirectionAndCenterReset() {
         let machine = GestureMachine(); open(machine)
@@ -235,6 +294,8 @@ enum Checks {
             ("自定义组合键校验与旧设置迁移", test.testCustomChordValidationAndMigration),
             ("所有自定义按键与松键顺序只发送一次", test.testCustomKeysCommitOnceInEitherReleaseOrder),
             ("普通按键先按、短按及取消不误发", test.testKeyShortcutCancellationAndKeyFirst),
+            ("直接录入：扩展按键、自动保存、修饰键和多键格式", test.testCapturedChordsAndExtendedKeys),
+            ("多键：任意按下顺序、松开只发一次和单修饰键", test.testMultipleKeysReleaseAndEitherPressOrder),
             ("同扇区方向更新与中央复位", test.testContinuousDirectionAndCenterReset),
             ("缩放后中心判定与圆圈一致", test.testScaledCenterMatchesVisualCircle),
             ("局域网：房间码哈希与规范化", lan.testRoomHashAndNormalization),

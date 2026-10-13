@@ -25,7 +25,7 @@ struct EmoteControlView: View {
                 Button("自定义…") { editingShortcut = true }.controlSize(.small)
             }
             if model.emoteChord.conflicts(with: model.chord) { Text("表情快捷键与 Ping 重叠，请点击自定义修改。").font(.system(size: 11)).foregroundStyle(.orange) }
-            Text("启用 Ping 后，按住表情组合键 → 移动选择 → 松开发送。轮盘中心和空格不发送；Esc / 右键取消。")
+            Text("启用 Ping 后，按住表情组合键 → 移动选择 → 松开发送。轮盘中心和空格不发送；\(model.emoteChord.keyCodes.contains(53) ? "右键取消" : "Esc / 右键取消")。")
                 .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(0..<8, id: \.self) { index in

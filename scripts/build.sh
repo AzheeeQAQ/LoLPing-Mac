@@ -11,6 +11,8 @@ cp .build/release/LoLPing "$APP/Contents/MacOS/LoLPing"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp -R Resources/Artwork Resources/Icons Resources/Sounds "$APP/Contents/Resources/"
 if [[ -d Resources/RelayTrust ]]; then cp -R Resources/RelayTrust "$APP/Contents/Resources/"; fi
+source scripts/embed-sparkle.sh
+embed_sparkle "$APP" "$PWD/.build"
 cp Resources/asset-sources.json "$APP/Contents/Resources/"
 if [[ ! -f "$APP/Contents/Resources/AppIcon.icns" || scripts/make_icon.swift -nt "$APP/Contents/Resources/AppIcon.icns" ]]; then
     swift scripts/make_icon.swift "$PWD/.build/AppIcon.iconset"

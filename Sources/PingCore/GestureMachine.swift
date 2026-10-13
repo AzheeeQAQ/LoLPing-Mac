@@ -11,7 +11,8 @@ public final class GestureMachine {
     public private(set) var selected: PingKind = .generic
     public private(set) var anchor: CGPoint = .zero
     public private(set) var currentModifiers: Modifiers = []
-    public private(set) var triggerKeyDown = false
+    public private(set) var triggerKeysDown: Set<Int> = []
+    public var triggerKeyDown: Bool { !triggerKeysDown.isEmpty }
     public var chord: TriggerChord = .controlOptionCommand
     public var deadZone: CGFloat = WheelGeometry.centerRadius
     private var center: CGPoint = .zero
@@ -20,14 +21,18 @@ public final class GestureMachine {
 
     public func flagsChanged(_ flags: Modifiers, at point: CGPoint, otherInputHeld: Bool) -> [Action] {
         currentModifiers = flags
-        return update(at: point, otherInputHeld: otherInputHeld, allowArm: chord.keyCode == nil)
+        return update(at: point, otherInputHeld: otherInputHeld, allowArm: true)
     }
     public func keyChanged(isDown: Bool, at point: CGPoint, otherInputHeld: Bool) -> [Action] {
         guard chord.keyCode != nil else { return [] }
-        triggerKeyDown = isDown
+        triggerKeysDown = isDown ? chord.keyCodes : []
         return update(at: point, otherInputHeld: otherInputHeld, allowArm: isDown)
     }
-    private var triggerHeld: Bool { currentModifiers == chord.modifiers && (chord.keyCode == nil || triggerKeyDown) }
+    public func inputChanged(flags: Modifiers, keys: Set<Int>, at point: CGPoint, otherInputHeld: Bool) -> [Action] {
+        currentModifiers = flags; triggerKeysDown = keys.intersection(chord.keyCodes)
+        return update(at: point, otherInputHeld: otherInputHeld, allowArm: true)
+    }
+    private var triggerHeld: Bool { currentModifiers == chord.modifiers && chord.keyCodes.isSubset(of: triggerKeysDown) }
     private var fullyReleased: Bool { currentModifiers.intersection(chord.modifiers).isEmpty && !triggerKeyDown }
     private func update(at point: CGPoint, otherInputHeld: Bool, allowArm: Bool) -> [Action] {
         let flags = currentModifiers
@@ -43,7 +48,7 @@ public final class GestureMachine {
             return [.arm(point)]
         }
         // Adding an unconfigured modifier cancels instead of committing.
-        if !flags.subtracting(chord.modifiers).isEmpty { return cancel() }
+        if otherInputHeld || !flags.subtracting(chord.modifiers).isEmpty { return cancel() }
         if !triggerHeld {
             let wasOpen = phase == .open
             phase = fullyReleased ? .idle : .blocked
@@ -84,6 +89,6 @@ public final class GestureMachine {
         phase = blockUntilRelease ? .blocked : .idle
         selected = .generic
         currentModifiers = []
-        triggerKeyDown = false
+        triggerKeysDown = []
     }
 }
