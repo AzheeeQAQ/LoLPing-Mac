@@ -10,12 +10,6 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(chord.rawValue, forKey: "triggerChord"); restartInputIfNeeded() }
     }
     let emotes: EmoteLibrary
-    @Published var emoteEnabled: Bool {
-        didSet { defaults.set(emoteEnabled, forKey: "emoteEnabled"); overlay.clearEmotes(); restartInputIfNeeded() }
-    }
-    @Published var emoteChord: TriggerChord {
-        didSet { defaults.set(emoteChord.rawValue, forKey: "emoteChord"); restartInputIfNeeded() }
-    }
     @Published var volume: Double {
         didSet { defaults.set(volume, forKey: "volume") }
     }
@@ -66,6 +60,7 @@ final class AppModel: ObservableObject {
     let defaults: UserDefaults
     let relay: RelayClient
     private var relayObservation: AnyCancellable?
+    private var wheelObservation: AnyCancellable?
     private let input = GlobalInput()
     private let overlay = OverlayController()
     private let sound = SoundPlayer()
@@ -80,14 +75,9 @@ final class AppModel: ObservableObject {
     init(defaults: UserDefaults = .standard, emoteDirectory: URL? = nil) {
         self.defaults = defaults
         emotes = EmoteLibrary(directory: emoteDirectory)
-        emoteEnabled = defaults.object(forKey: "emoteEnabled") == nil ? true : defaults.bool(forKey: "emoteEnabled")
-        var savedEmoteChord = TriggerChord(rawValue: defaults.string(forKey: "emoteChord") ?? "") ?? .controlOptionShift
         relay = RelayClient(defaults: defaults)
         let savedChord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
-        if savedEmoteChord.conflicts(with: savedChord) {
-            for candidate in [TriggerChord.controlOptionShift, .controlCommandShift, .controlOptionCommand] where !candidate.conflicts(with: savedChord) { savedEmoteChord = candidate; break }
-        }
-        chord = savedChord; emoteChord = savedEmoteChord
+        chord = savedChord
         volume = defaults.object(forKey: "volume") == nil ? 0.55 : min(max(defaults.double(forKey: "volume"), 0), 1)
         scale = defaults.object(forKey: "effectScale") == nil ? 1 : min(max(defaults.double(forKey: "effectScale"), 0.75), 1.5)
         lanEnabled = defaults.bool(forKey: "lanEnabled")
@@ -98,7 +88,7 @@ final class AppModel: ObservableObject {
         lanRoomCode = LANProtocol.normalizeRoomCode(defaults.string(forKey: "lanRoomCode") ?? "")
         lanNicknameDraft = lanNickname; lanRoomDraft = lanRoomCode
         input.onAction = { [weak self] action in self?.handle(action) }
-        input.onEmoteAction = { [weak self] action in self?.handleEmote(action) }
+        wheelObservation = emotes.objectWillChange.sink { [weak self] _ in self?.cancelEffects() }
         lan.onEmote = { [weak self] payload, name, point in self?.showReceivedEmote(payload, sender: name, position: point) }
         input.onUnavailable = { [weak self] in
             self?.setEnabled(false)
@@ -167,7 +157,7 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            if !editingShortcut { try input.start(chord: chord, scale: scale, emoteChord: emoteEnabled && !emoteChord.conflicts(with: chord) ? emoteChord : nil) }
+            if !editingShortcut { try input.start(chord: chord, scale: scale) }
             isEnabled = true; awaitingPermission = false
             permissionTimer?.invalidate(); permissionTimer = nil
             defaults.set(true, forKey: "enabled")
@@ -356,7 +346,7 @@ final class AppModel: ObservableObject {
         overlay.showEmote(image, at: CGPoint(x: screen.frame.midX, y: screen.frame.midY), scale: scale)
     }
     func sendEmote(_ id: String, at point: CGPoint? = nil) {
-        guard emoteEnabled, let payload = emotes.payload(id), let image = emotes.image(id),
+        guard let payload = emotes.payload(id), let image = emotes.image(id),
               let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let anchor = point ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
         overlay.showEmote(image, at: anchor, scale: scale)
@@ -367,7 +357,7 @@ final class AppModel: ObservableObject {
         }
     }
     private func showReceivedEmote(_ payload: EmotePayload, sender: String, position: CGPoint?) {
-        guard emoteEnabled, let image = EmoteLibrary.decode(payload) else { return }
+        guard let image = EmoteLibrary.decode(payload) else { return }
         if position == nil { guard relayEnabled, relay.receiveEnabled else { return } }
         else { guard lanEnabled else { return } }
         let screens = NSScreen.screens
@@ -376,29 +366,41 @@ final class AppModel: ObservableObject {
         let anchor = position.map { LANGeometry.denormalize($0, in: screen.frame) } ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
         overlay.showEmote(image, at: anchor, scale: scale, label: sender, teammate: true)
     }
-    private func handleEmote(_ action: GestureMachine.Action) {
-        guard isEnabled, emoteEnabled else { return }
-        switch action {
-        case .show(let anchor): input.setWheelCenter(overlay.showWheel(at: anchor, scale: scale, emotes: emotes))
-        case .hover(let kind, let angle): overlay.select(kind, angle: angle)
-        case .hide: overlay.hideWheel(animated: false)
-        case .dismiss: overlay.hideWheel()
-        case .commit(let kind, let anchor):
-            if let index = PingKind.wheel.firstIndex(of: kind) { sendEmote(emotes.slots[index], at: anchor) }
-        case .arm: break
+    func previewWheelContent(_ content: WheelContent) {
+        switch content {
+        case .ping(let kind):
+            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+            overlay.showPing(kind, at: CGPoint(x: screen.frame.midX, y: screen.frame.midY), scale: scale)
+            sound.play(kind, volume: volume)
+        case .emote(let id): previewEmote(id)
+        case .empty: break
+        }
+    }
+    /// The same mapping is used by a gesture commit and the settings send button.
+    func sendWheelSelection(_ selection: PingKind, at anchor: CGPoint) {
+        sendWheelContent(emotes.wheel[WheelLayout.index(for: selection)], at: anchor)
+    }
+    func sendWheelContent(_ content: WheelContent, at point: CGPoint? = nil) {
+        switch content {
+        case .ping(let kind):
+            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+            let anchor = point ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+            overlay.showPing(kind, at: anchor, scale: scale)
+            sound.play(kind, volume: volume)
+            sendToTeammates(kind, at: anchor)
+        case .emote(let id): sendEmote(id, at: point)
+        case .empty: break
         }
     }
     private func handle(_ action: GestureMachine.Action) {
         guard isEnabled else { return }
         switch action {
-        case .show(let anchor): input.setWheelCenter(overlay.showWheel(at: anchor, scale: scale))
+        case .show(let anchor): input.setWheelCenter(overlay.showWheel(at: anchor, scale: scale, library: emotes))
         case .hover(let kind, let angle): overlay.select(kind, angle: angle)
         case .hide: overlay.hideWheel(animated: false)
         case .dismiss: overlay.hideWheel()
         case .commit(let kind, let anchor):
-            overlay.showPing(kind, at: anchor, scale: scale)
-            sound.play(kind, volume: volume)
-            sendToTeammates(kind, at: anchor)
+            sendWheelSelection(kind, at: anchor)
         case .arm: break
         }
     }

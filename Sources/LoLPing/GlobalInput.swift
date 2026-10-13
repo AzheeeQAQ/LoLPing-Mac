@@ -14,10 +14,7 @@ final class GlobalInput {
     }
     let machine = GestureMachine()
     var onAction: ((GestureMachine.Action) -> Void)?
-    var onEmoteAction: ((GestureMachine.Action) -> Void)?
     private var pingChord: TriggerChord = .controlOptionCommand
-    private var emoteChord: TriggerChord?
-    private var emoteMode = false
     var onUnavailable: (() -> Void)?
     private let mouseButtonsDown: () -> Bool
     private let specialKeysDown: () -> Modifiers
@@ -41,10 +38,10 @@ final class GlobalInput {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    func start(chord: TriggerChord, scale: Double, emoteChord: TriggerChord? = nil) throws {
+    func start(chord: TriggerChord, scale: Double) throws {
         stop()
         guard Self.isTrusted else { throw StartError.permission }
-        configure(chord: chord, emoteChord: emoteChord)
+        configure(chord: chord)
         machine.deadZone = WheelGeometry.centerRadius*scale
         machine.reset(blockUntilRelease: !modifiers(CGEventSource.flagsState(.combinedSessionState), for: chord).intersection(chord.modifiers).isEmpty)
         let types: [CGEventType] = [.flagsChanged, .keyDown, .keyUp, .mouseMoved,
@@ -66,7 +63,7 @@ final class GlobalInput {
         source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, newTap, 0)
         if let source { CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes) }
         CGEvent.tapEnable(tap: newTap, enable: true)
-        if !chord.modifiers.intersection(.physicalSpecial).isEmpty || !(emoteChord?.modifiers.intersection(.physicalSpecial).isEmpty ?? true) {
+        if !chord.modifiers.intersection(.physicalSpecial).isEmpty {
             let poll = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 let flags = CGEventSource.flagsState(.combinedSessionState)
@@ -77,8 +74,8 @@ final class GlobalInput {
         }
     }
 
-    func configure(chord: TriggerChord, emoteChord: TriggerChord? = nil) {
-        pingChord = chord; self.emoteChord = emoteChord; emoteMode = false; machine.chord = chord
+    func configure(chord: TriggerChord) {
+        pingChord = chord; machine.chord = chord
     }
     func stop() {
         timer?.invalidate(); timer = nil
@@ -101,12 +98,7 @@ final class GlobalInput {
     }
     private func selectChord(_ flags: CGEventFlags) {
         guard machine.phase == .idle else { return }
-        let candidates = [(false, pingChord)] + (emoteChord.map { [(true, $0)] } ?? [])
-        let matching = candidates.filter { modifiers(flags, for: $0.1) == $0.1.modifiers }
-        let selected = matching.first { $0.1.keyCodes == keysDown } ??
-            matching.first { !$0.1.keyCodes.isEmpty && keysDown.isSubset(of: $0.1.keyCodes) }
-        emoteMode = selected?.0 ?? false
-        machine.chord = selected?.1 ?? pingChord
+        machine.chord = pingChord
     }
     private func routeState(_ flags: CGEventFlags, at point: CGPoint) {
         dispatch(machine.inputChanged(flags: modifiers(flags, for: machine.chord), keys: keysDown, at: point,
@@ -181,7 +173,7 @@ final class GlobalInput {
         return false
     }
     private func emit(_ action: GestureMachine.Action) {
-        if emoteMode { onEmoteAction?(action) } else { onAction?(action) }
+        onAction?(action)
     }
     private func dispatch(_ actions: [GestureMachine.Action]) {
         for action in actions {

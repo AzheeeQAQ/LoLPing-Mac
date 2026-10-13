@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu = NSMenu()
         stateItem = NSMenuItem(title: "LoLPing · 已关闭", action: nil, keyEquivalent: "")
         menu.addItem(stateItem)
-        enableItem = NSMenuItem(title: "启用 Ping", action: #selector(toggleEnabled), keyEquivalent: "")
+        enableItem = NSMenuItem(title: "启用信号", action: #selector(toggleEnabled), keyEquivalent: "")
         enableItem.target = self; menu.addItem(enableItem)
         menu.addItem(withTitle: "打开控制窗口…", action: #selector(showWindow), keyEquivalent: "").target = self
         menu.addItem(.separator())
@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let state = model.isEnabled ? "已开启" : (model.awaitingPermission ? "等待授权" : "已关闭")
         stateItem.title = "LoLPing · \(state)"
         enableItem.state = model.isEnabled ? .on : (model.awaitingPermission ? .mixed : .off)
-        enableItem.title = model.awaitingPermission ? "取消启用" : "启用 Ping"
+        enableItem.title = model.awaitingPermission ? "取消启用" : "启用信号"
         statusItem.button?.toolTip = "LoLPing · \(state)"
         statusItem.button?.image = NSImage(systemSymbolName: model.isEnabled ? "location.circle.fill" : "location.circle", accessibilityDescription: "LoLPing · \(state)")
         lanStateItem.title = model.lanMenuTitle

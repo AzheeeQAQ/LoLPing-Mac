@@ -9,7 +9,7 @@ APP="$PWD/dist/LoLPing.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/LoLPing "$APP/Contents/MacOS/LoLPing"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp -R Resources/Artwork Resources/Icons Resources/Sounds "$APP/Contents/Resources/"
+cp -R Resources/Artwork Resources/Icons Resources/Sounds Resources/Emotes "$APP/Contents/Resources/"
 if [[ -d Resources/RelayTrust ]]; then cp -R Resources/RelayTrust "$APP/Contents/Resources/"; fi
 source scripts/embed-sparkle.sh
 embed_sparkle "$APP" "$PWD/.build"

@@ -32,7 +32,7 @@ enum EmoteChecks {
             let libraryDir = scratch.appendingPathComponent("library")
             let library = EmoteLibrary(directory: libraryDir)
             try library.importImage(sourceFile)
-            check(library.items.count == 1 && library.slots[0] == library.items[0].id, "import automatically fills first wheel slot")
+            check(library.items.count == 1 && library.wheel == WheelLayout.defaults, "import preserves the current wheel until a slot is chosen")
             let id = library.items[0].id, payload = library.payload(id)!
             check(payload.isValid && EmoteLibrary.decode(payload) != nil, "normalized PNG decodes, fits 160 px and 32 KB")
             do { try library.importImage(sourceFile); check(false, "duplicate rejected") } catch {}
@@ -70,28 +70,37 @@ enum EmoteChecks {
             }
             check(assembled == payload && deliveries == 1, "out-of-order LAN assembly dedupes repeat passes")
             print("PASS import: PNG/JPEG/GIF/WebP, transparent resize, hash, limits, duplicate, persistence and LAN assembly")
-            let input = GlobalInput(mouseButtonsDown: { false }), pingChord = TriggerChord(modifiers: [.control], keyCode: 0)!, emoteChord = TriggerChord(modifiers: [.option], keyCode: 11)!
-            input.configure(chord: pingChord, emoteChord: emoteChord)
-            var pings = 0, emotes = 0
-            input.onAction = { if case .commit = $0 { pings += 1 } }
-            input.onEmoteAction = { if case .commit = $0 { emotes += 1 } }
-            func event(_ type: CGEventType, flags: CGEventFlags, key: CGKeyCode = 0) -> Bool {
-                let e = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: type == .keyDown)!
-                e.flags = flags; return input.process(type, e)
+            check(BundledEmotes.validationFailures.isEmpty && library.bundled.count == 44, "all 44 bundled icons validate offline")
+            for item in library.bundled {
+                check(library.payload(item.id).flatMap(EmoteLibrary.decode) != nil, "bundled PNG hash, dimensions and decode: \(item.name)")
             }
-            for (flags, key) in [(CGEventFlags.maskControl, CGKeyCode(0)), (.maskAlternate, 11)] {
-                _ = event(.flagsChanged, flags: flags); check(event(.keyDown, flags: flags, key: key), "configured trigger swallowed")
-                spin(0.23); check(event(.keyUp, flags: flags, key: key), "balanced trigger release swallowed")
-                _ = event(.flagsChanged, flags: [])
-            }
-            check(pings == 1 && emotes == 1, "separate chords select only their own wheel")
-            input.stop()
-            check(TriggerChord.controlOptionShift.conflicts(with: .controlOptionShift), "same chord conflict")
-            check(TriggerChord(modifiers: [.control, .option], keyCode: nil)!.conflicts(with: .controlOptionShift), "nested modifier conflict")
-            print("PASS two-wheel input routing and shortcut conflict validation")
+            let builtin = library.bundled.first!.id
+            library.setSlot(.emote(builtin), at: 0); library.setSlot(.ping(.assist), at: 1)
+            library.setSlot(.empty, at: 2); library.setSlot(.emote(id), at: 8)
+            let mixed = EmoteLibrary(directory: libraryDir)
+            check(mixed.wheel == library.wheel, "mixed image/ping/empty/center wheel survives restart")
+            let beforeInvalid = mixed.wheel
+            mixed.setSlot(.emote(String(repeating: "0", count: 64)), at: 0); mixed.setSlot(.ping(.missing), at: 9)
+            check(mixed.wheel == beforeInvalid, "unknown images and invalid positions do not replace a slot")
+            let legacyDir = scratch.appendingPathComponent("legacy")
+            try fm.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+            try payload.png.write(to: legacyDir.appendingPathComponent(id+".png"))
+            var legacySlots = Array(repeating: "", count: 8); legacySlots[4] = id
+            try JSONEncoder().encode(EmoteLibrary.Manifest(items: [CustomEmote(id: id, name: payload.name)], slots: legacySlots, wheel: nil))
+                .write(to: legacyDir.appendingPathComponent("library.json"))
+            let migrated = EmoteLibrary(directory: legacyDir)
+            check(migrated.wheel[4] == .emote(id) && migrated.wheel[0] == .ping(.retreat) && migrated.wheel[8] == .ping(.generic), "legacy images migrate to mixed wheel without losing other pings")
+            migrated.setSlot(.ping(.push), at: 0)
+            check(EmoteLibrary(directory: legacyDir).wheel == migrated.wheel, "migration persists new layout on first edit")
+            mixed.resetWheel(); check(mixed.wheel == WheelLayout.defaults && mixed.items.count == 3 && mixed.bundled.count == 44, "reset keeps both image libraries")
+            mixed.remove(builtin); check(mixed.bundled.count == 44 && mixed.payload(builtin) != nil, "bundled icons cannot be deleted as custom files")
+            print("PASS unified wheel: 44 offline images, mixed slot/center persistence, validation, legacy migration and reset")
+            defaults.set(false, forKey: "emoteEnabled") // Removed legacy switch must not block the shared wheel.
             let model = AppModel(defaults: defaults, emoteDirectory: libraryDir)
             defer { model.shutdown() }
-            let hosting = NSHostingView(rootView: EmoteControlView(model: model, library: model.emotes).padding(20).frame(width: 600).preferredColorScheme(.dark))
+            model.emotes.setSlot(.emote(builtin), at: 0); model.emotes.setSlot(.ping(.assist), at: 1)
+            model.emotes.setSlot(.empty, at: 2); model.emotes.setSlot(.emote(id), at: 8)
+            let hosting = NSHostingView(rootView: WheelControlView(model: model, library: model.emotes).padding(20).frame(width: 600).tint(Color(red: 0.83, green: 0.70, blue: 0.44)).preferredColorScheme(.dark))
             hosting.appearance = NSAppearance(named: .darkAqua)
             hosting.frame = CGRect(x: 0, y: 0, width: 600, height: hosting.fittingSize.height)
             hosting.layoutSubtreeIfNeeded()
@@ -100,14 +109,15 @@ enum EmoteChecks {
                 try rep.representation(using: .png, properties: [:])!.write(to: screenshots.appendingPathComponent("emote-settings.png"))
             } else { check(false, "settings snapshot") }
             let wheel = WheelView(frame: CGRect(x: 0, y: 0, width: 450, height: 450))
-            wheel.emoteImages = model.emotes.slots.map { model.emotes.image($0) }
-            wheel.emoteNames = model.emotes.slots.map { id in model.emotes.items.first(where: { $0.id == id })?.name ?? "" }
+            wheel.configure(model.emotes)
             wheel.setSelection(.retreat, angle: 0, animated: false)
             try VisualChecks.save(VisualChecks.bitmap(size: wheel.bounds.size) { VisualChecks.draw(wheel, at: .zero) }, to: screenshots.appendingPathComponent("emote-wheel.png"))
             let effect = EmoteEffectView(frame: CGRect(x: 0, y: 0, width: 220, height: 220), image: library.image(id)!, label: "联机朋友")
             effect.seek(0.7)
             try VisualChecks.save(VisualChecks.bitmap(size: effect.bounds.size) { VisualChecks.draw(effect, at: .zero) }, to: screenshots.appendingPathComponent("emote-effect.png"))
-            library.remove(id); check(EmoteLibrary(directory: libraryDir).slots[7].isEmpty, "delete clears persisted slot")
+            library.assign(id, to: 7); library.assign(id, to: 8)
+            library.remove(id); let deleted = EmoteLibrary(directory: libraryDir)
+            check(deleted.wheel[7] == .empty && deleted.wheel[8] == .empty, "delete clears every outer and center reference")
             // Real clients and server: images never enter the recipient's personal library.
             let a = RelayClient(defaults: nil), b = RelayClient(defaults: nil)
             defer { a.disconnect(); b.disconnect(); spin(0.15) }
@@ -124,6 +134,50 @@ enum EmoteChecks {
                 spin(1.1); b.receiveEnabled = true; b.reconnectAfterWake(); wait { b.state == .connected && a.peers.count == 2 }
                 a.sendEmote(payload); wait { gotB == 2 }; check(gotB == 2, "image delivery resumes after reconnect")
                 print("PASS production relay images: both directions, receive toggle and reconnect")
+            }
+            a.disconnect(); b.disconnect(); spin(0.2)
+            let peer = RelayClient(defaults: nil)
+            defer { peer.disconnect() }
+            model.relay.serverAddress = endpoint; model.relay.displayName = "统一轮盘甲"
+            peer.serverAddress = endpoint; peer.displayName = "统一轮盘乙"
+            model.relayEnabled = true; model.createRelayRoom(); wait { model.relay.state == .connected }
+            check(model.relay.state == .connected, "unified wheel room connects")
+            if model.relay.state == .connected {
+                peer.roomInput = model.relay.room; peer.joinRoom(); wait { peer.state == .connected && model.relay.peers.count == 2 }
+                model.emotes.setSlot(.emote(builtin), at: 0); model.emotes.setSlot(.ping(.assist), at: 1)
+                model.emotes.setSlot(.empty, at: 2); model.emotes.setSlot(.emote(builtin), at: 8)
+                var receivedImages: [String] = [], receivedPings: [PingKind] = []
+                peer.onEmote = { value, _ in check(EmoteLibrary.decode(value) != nil, "bundled image receives as actual PNG"); receivedImages.append(value.id) }
+                peer.onPing = { value, _ in receivedPings.append(value) }
+                let input = GlobalInput(mouseButtonsDown: { false })
+                input.configure(chord: TriggerChord(modifiers: [.control], keyCode: 0)!)
+                input.onAction = { if case .commit(let selection, let anchor) = $0 { model.sendWheelSelection(selection, at: anchor) } }
+                func gesture(_ vector: CGPoint) {
+                    let top = NSScreen.screens.first?.frame.maxY ?? 0
+                    let anchor = CGPoint(x: 300, y: 300)
+                    let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)!
+                    down.flags = .maskControl; down.location = CGPoint(x: anchor.x, y: top-anchor.y)
+                    check(input.process(.keyDown, down), "shared trigger down is swallowed")
+                    spin(0.23)
+                    let moved = CGEvent(source: nil)!; moved.flags = .maskControl
+                    moved.location = CGPoint(x: anchor.x+vector.x, y: top-anchor.y-vector.y)
+                    _ = input.process(.mouseMoved, moved)
+                    let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)!
+                    up.flags = .maskControl; up.location = moved.location
+                    check(input.process(.keyUp, up), "shared trigger release is swallowed")
+                    let released = CGEvent(source: nil)!; released.flags = []
+                    _ = input.process(.flagsChanged, released)
+                }
+                gesture(CGPoint(x: 0, y: 100)); wait { receivedImages.count == 1 }
+                check(receivedImages == [builtin] && receivedPings.isEmpty, "same chord up slot sends selected builtin image")
+                spin(1.1); gesture(CGPoint(x: 100, y: 100)); wait { receivedPings.count == 1 }
+                check(receivedPings == [.assist], "same chord diagonal sends replaced ping, not original slot kind")
+                spin(1.1); gesture(CGPoint(x: 100, y: 0)); spin(0.3)
+                check(receivedImages.count == 1 && receivedPings.count == 1, "empty slot sends nothing")
+                gesture(.zero); wait { receivedImages.count == 2 }
+                check(receivedImages == [builtin,builtin], "same chord center can send replaced image")
+                input.stop()
+                print("PASS shared trigger production gesture commits: selected image, remapped ping, empty slot and custom center over public relay")
             }
             let lanA = LANSession(), lanB = LANSession(), room = String(UUID().uuidString.prefix(8))
             defer { lanA.stop(); lanB.stop() }

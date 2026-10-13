@@ -26,7 +26,7 @@ if CommandLine.arguments.contains("--check-assets") {
             print("\(kind.title): image=\(Assets.icon(kind)?.size ?? .zero), sound=\(String(format: "%.2f", player.duration))s")
         } catch { failures.append("\(kind.soundName): \(error.localizedDescription)") }
     }
-    if failures.isEmpty { print("All 9 icons and 9 audio files decode successfully."); exit(0) }
+    if failures.isEmpty { print("All 9 ping icons, 9 audio files and 44 bundled emote images decode successfully."); exit(0) }
     failures.forEach { print($0) }; exit(1)
 }
 

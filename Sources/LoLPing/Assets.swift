@@ -61,7 +61,7 @@ enum Assets {
             if icon(kind) == nil { missing.append(kind.iconName + ".png") }
             if !FileManager.default.fileExists(atPath: sound(kind).path) { missing.append(kind.soundName + ".mp3") }
             return missing
-        }
+        } + BundledEmotes.validationFailures
     }
 }
 

@@ -1,8 +1,26 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>LoLPing</title>
+        <item>
+            <title>1.7.0</title>
+            <pubDate>Tue, 13 Oct 2026 01:21:28 -0700</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.7.0：统一轮盘与内置表情
+
+• 信号和表情合并为一个轮盘，共用一套快捷键；不再需要独立表情开关。
+• 外围八格及中心格均可替换：点击格子，再点击信号、表情或自己的图片，自动保存；支持留空、拖入和恢复默认。
+• 内置参考项目全部 44 张 PNG 表情，包含魄罗、猫咪、小蜜蜂，离线即可使用，不占自定义图片名额。
+• 沿用原信号快捷键，旧自定义表情格子自动迁入，个人图片库与设置保留。
+• 服务器和局域网均发送实际图片，朋友无需导入。更新重启后请重新加入房间。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.7.0/downloads/LoLPing-v1.7.0-update-macOS-universal.zip" length="5427654" type="application/octet-stream" sparkle:edSignature="0VlM7wfz7k2qmWx/61gLYU+69fCaGZ4k5bR1q+e8vZv1EZ7rhz0zR2XDRJK8aVUPytMzfQl5TVMbtPmAmEwwBw=="/>
+        </item>
         <item>
             <title>1.6.0</title>
             <pubDate>Mon, 12 Oct 2026 23:41:45 -0700</pubDate>
@@ -20,10 +38,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 更新重启后请重新加入房间。若 macOS 要求管理员确认或重新允许辅助功能，请按系统提示操作。
 ]]></description>
-            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.6.0/downloads/LoLPing-v1.6.0-update-macOS-universal.zip" length="4701708" type="application/octet-stream" sparkle:edSignature="66FKqrq5ARCevkvnZqRajWVRm2J8hpigLsukL3mXRxpmgUy3OVD08/+Po31NlcvNPQvupwjIIQevr7yn1k4PDw=="></enclosure>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.6.0/downloads/LoLPing-v1.6.0-update-macOS-universal.zip" length="4701708" type="application/octet-stream" sparkle:edSignature="66FKqrq5ARCevkvnZqRajWVRm2J8hpigLsukL3mXRxpmgUy3OVD08/+Po31NlcvNPQvupwjIIQevr7yn1k4PDw=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: pnBZaZJsMUHFyclTdHVHaWlpQAWvTP/pw4e1ewccB/FDV9qMXw6WrsmnuUW5Xkb2vqdbFnno448lLRUEVUGSCA==
-length: 1958
+</rss>
+<!-- sparkle-signatures:
+edSignature: UZ05jKz6Ytm1FG0Xet7Mgvv/1i/ttaiqco4ngVn0B2ZV4FSaFmPiKjssSpYdkOToNoZIZTAHhlKAch4+mTqJBw==
+length: 3331
 -->

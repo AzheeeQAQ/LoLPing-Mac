@@ -129,6 +129,270 @@
     {
       "path": "Artwork/radialwheelalt_atlas_2.png",
       "url": "https://raw.communitydragon.org/15.24/game/assets/ux/menu/radialwheelalt_atlas_2.png"
+    },
+    {
+      "path": "Emotes/facepalm.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/facepalm.png",
+      "sha256": "1f821115b0c7ccde16396afc1dcef6f094c1ede64573ac5a1a2f3fee8fad9770",
+      "gitBlob": "75e72b255be9c5517df3eb9361b6003c4ff1c744"
+    },
+    {
+      "path": "Emotes/unworthy.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/unworthy.png",
+      "sha256": "2a857521f8c705471c4ef3b939c05da3d22c8005d6f51bd6d7aacd554677f03c",
+      "gitBlob": "a3a8e318787053f44b2cd3a3c0a89476993a540a"
+    },
+    {
+      "path": "Emotes/unworthy_cn.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/unworthy_cn.png",
+      "sha256": "dd84a1795245e2701dc166320521bf9e347e0fbc62a4f81f12bed59706fff1a2",
+      "gitBlob": "6613f2c0bbf7ee7ab31b644e35354bcfa0dd5d48"
+    },
+    {
+      "path": "Emotes/poro_snax.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/poro_snax.png",
+      "sha256": "4d5956c9fc4e8a210ef9ee6037a184033b2464f317fb9f5c9af194c75cd85331",
+      "gitBlob": "efe7b5530608f3d7491fb42f4602d40e3b59a965"
+    },
+    {
+      "path": "Emotes/sad_kitten.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/sad_kitten.png",
+      "sha256": "ada52083228c08faf3bc631758c07d778d41a147f53a34bd90ec15031980ba3e",
+      "gitBlob": "963cc160ba95f8683b1287d2271952e957ea347c"
+    },
+    {
+      "path": "Emotes/cheeky_poro.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/cheeky_poro.png",
+      "sha256": "81ce38889d01de46aa8d69c2ae4f177222c3fb6c2386568d07ed2e521469737f",
+      "gitBlob": "7535fc4caf8e5a32015137a287faad06c4f2be3b"
+    },
+    {
+      "path": "Emotes/angry_kitty.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/angry_kitty.png",
+      "sha256": "2511ca565b1d89b223fb22c5489b47f5aaa50407b0d981d49ce090f6c50b4310",
+      "gitBlob": "5fbd0486672a98cd927a7b35c910197fdc6ba7aa"
+    },
+    {
+      "path": "Emotes/gg_heart.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/gg_heart.png",
+      "sha256": "d6b4b1a8dd441db6b1913028298ac7a0f4a58ff3ae4b8f5a386e47462dd14922",
+      "gitBlob": "1ba70fed8df65c9986746d933454d7c67b004e12"
+    },
+    {
+      "path": "Emotes/bee_happy.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/bee_happy.png",
+      "sha256": "f89874515981c743b253f3149f9d6f6b143c853fd74bbe44f69d0c3e8c0586d9",
+      "gitBlob": "1273d8eae9a3ece7503380657430552914f07954"
+    },
+    {
+      "path": "Emotes/bee_mad.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/bee_mad.png",
+      "sha256": "24af0fe2ab9258ce78d1e1f3b0ccaeff5788c8e4b7f9272c1793b28c66c525a2",
+      "gitBlob": "a6e82d3d701bf84fc6336950cbeb120c5b335c31"
+    },
+    {
+      "path": "Emotes/bee_sad.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/bee_sad.png",
+      "sha256": "622810fcaaeb987f9862a73c2830783aa6b2382f66a7c5eb9499104dd4bd73ca",
+      "gitBlob": "b09c044509fbb49c528035fbe364b8371b987bba"
+    },
+    {
+      "path": "Emotes/snoozy_poro.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/snoozy_poro.png",
+      "sha256": "b8ae4fe14a9682c7a0fe31d6e6b000d39fd702baa07dd7059c33922df6f129c6",
+      "gitBlob": "8e35eec47638c7256a1fb33db5ea8271a4f7ae67"
+    },
+    {
+      "path": "Emotes/wahaha.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/wahaha.png",
+      "sha256": "0f7f21be58335e91bc93e8bc9aff86a8e26ca87ed838e5b7ab27ad683e3c419e",
+      "gitBlob": "5ec865a9a38e6e339327c714478319c9ebe93c7d"
+    },
+    {
+      "path": "Emotes/omg_love_it.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/omg_love_it.png",
+      "sha256": "1685fec3caa14d5da112816f479b1b96d1f2ea6d9bee71bc0e4838d7e369043d",
+      "gitBlob": "98e37f7732eae651ea0936dedd2612c1229cffea"
+    },
+    {
+      "path": "Emotes/poro_ride.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/poro_ride.png",
+      "sha256": "2d8cf23ce6c8d58f9502643328c9297d14884b76b3d4b720ed4d815c5e31f3b1",
+      "gitBlob": "083c806d56b40923b98c9d70a35c1b3cf46f5e13"
+    },
+    {
+      "path": "Emotes/dont_make_me_laugh.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/dont_make_me_laugh.png",
+      "sha256": "28ddbe3de16f50d054f2525aae26e0ade0486fe69d1f797a4bdb0b555a467756",
+      "gitBlob": "eac809244008a1f6caad1e64be71b0c2779dc3f6"
+    },
+    {
+      "path": "Emotes/woah_dizzy.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/woah_dizzy.png",
+      "sha256": "a1b8c4ff4550bfd3a2246bf308804a8b67303b345c69a57e315daf64203991e8",
+      "gitBlob": "d552a6429b301a0c0e84f3d1e4960ac5765b41ba"
+    },
+    {
+      "path": "Emotes/haha_hilarious.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/haha_hilarious.png",
+      "sha256": "939394696837a8ff5ba033740c84622ccb8c0270b528b917485c91db839200ed",
+      "gitBlob": "40d48f73a71b2de02fbe222f697e131537427ca5"
+    },
+    {
+      "path": "Emotes/gasp.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/gasp.png",
+      "sha256": "80ac18ad7399808e035bfe4041997f905f2d0406f8aabacd8fc179612a56e47c",
+      "gitBlob": "43b8078e580f06488f78a5615ac9afa8e6c7e143"
+    },
+    {
+      "path": "Emotes/super_approved.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/super_approved.png",
+      "sha256": "f6c5ef61e78b673299f491b35c1cde8b89cc81cee0adb036de987c1c22745d70",
+      "gitBlob": "688d2031bc85dafe147fb62b2b40b5638a5b1f9d"
+    },
+    {
+      "path": "Emotes/pain.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/pain.png",
+      "sha256": "a01b6e02c43859160d643c26fed044335c82416c559357640c28623e124e7313",
+      "gitBlob": "b192a75ec67bffe3246572306554d77de826b421"
+    },
+    {
+      "path": "Emotes/laughing_out_loud.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/laughing_out_loud.png",
+      "sha256": "9de708856b67d83ca48a190f60b309f1204281c9e0b8a566f7ba2cf670ed3017",
+      "gitBlob": "1c76758b627862660adfa6ceea57fc95945b68c9"
+    },
+    {
+      "path": "Emotes/hats_off.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/hats_off.png",
+      "sha256": "bb59d44ecc011242ae45c77f1cc41c2241c860b8b77a70e47a17947f95b00b02",
+      "gitBlob": "fe2b4a0031b6aa58ad43a87695b6dbad2997a304"
+    },
+    {
+      "path": "Emotes/call_me.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/call_me.png",
+      "sha256": "49d27fcff38600056adbf0acf117553398dbaf1c5512d921b2b59b65839ef0b5",
+      "gitBlob": "ce840bc4911fdc86abc6cd44d6abcc960bf0b792"
+    },
+    {
+      "path": "Emotes/think_about_it.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/think_about_it.png",
+      "sha256": "3109c1aa51bebbc47340812d46d4eccf00a91c975aade399483fd44c73817f2f",
+      "gitBlob": "e44dc87d540a3a6461aa58dcb6ee580711fae1fa"
+    },
+    {
+      "path": "Emotes/unimpressed.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/unimpressed.png",
+      "sha256": "fcdf69d0d03e6b2fb9e3fc86989b489a99dac1fc284902353fce4274463aebcd",
+      "gitBlob": "3946013124dcbc32a96996d3d7ca006d5dfa241d"
+    },
+    {
+      "path": "Emotes/did_you_just.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/did_you_just.png",
+      "sha256": "948051cc52dba105b327ccf375500af607a8cf225594058ea934d202b8604060",
+      "gitBlob": "53d68f7a2835999100e81a80147ad3f746cc999f"
+    },
+    {
+      "path": "Emotes/nice_try.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/nice_try.png",
+      "sha256": "3aa4c56e777ea43d75e74ebd7b83830b5ca6ddd6166375414074377e3e400a40",
+      "gitBlob": "125c9427a9f8c56cf16e7bef2593cd60f05d4acf"
+    },
+    {
+      "path": "Emotes/nice.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/nice.png",
+      "sha256": "157fa8a7de0c2ce0bd92d675a63d758ed965c0dfd4563811923d0d53c85b3f40",
+      "gitBlob": "aba4adc96bbdf62044cc867e7a4f64749ddd2bc0"
+    },
+    {
+      "path": "Emotes/despair.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/despair.png",
+      "sha256": "23224c1fbe052171fa44ffe16d1be25a4353e1322c5b3f15fb205906d15349a5",
+      "gitBlob": "00adcb1ccb137ecabd0e8f7f92ab25e2faf2f49d"
+    },
+    {
+      "path": "Emotes/does_not_compute.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/does_not_compute.png",
+      "sha256": "fd6d22b5ec15ae534bc91537ff3795495afe795b2329985d1352b23b017eca5d",
+      "gitBlob": "3b16617681ad75ddd38258cc7d860fc37b8d99da"
+    },
+    {
+      "path": "Emotes/come_at_me.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/come_at_me.png",
+      "sha256": "00e0020d430f84e9dfad5cef0053a550c31dcc9a9419876523156038df35240e",
+      "gitBlob": "2ba767f9f83e7ed4de2972dbf3a0807e30d8b268"
+    },
+    {
+      "path": "Emotes/how_could_you.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/how_could_you.png",
+      "sha256": "838152721fba2865c6498909289b3f9969b4bfbe3eb459dba319140636ea12d8",
+      "gitBlob": "170018d9ad20e9dfee511eab03b915ba990432bf"
+    },
+    {
+      "path": "Emotes/scout_approved.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/scout_approved.png",
+      "sha256": "b337c3d21cd403adba0062b7b9b50aa6d74d7b8d4cfce1858fbb048b81cedeed",
+      "gitBlob": "a5a276f297472a23ade9bc9bfaa50dfb0d1b11ac"
+    },
+    {
+      "path": "Emotes/maybe_next_time.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/maybe_next_time.png",
+      "sha256": "780da261d3fc1b916fcbe1b436122544df06c031ade353a7b8b217ea8814a9a6",
+      "gitBlob": "866747a0c7aa6e6224e7ca9e2bed242d35e6f5de"
+    },
+    {
+      "path": "Emotes/okay.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/okay.png",
+      "sha256": "3dfff8249f887da2cb1ed0bcf8042343be3302a8289fec7ae6140f37488467ca",
+      "gitBlob": "c49f90c440119ea0857d836546430f8b868fe4d8"
+    },
+    {
+      "path": "Emotes/good_job_buddy.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/good_job_buddy.png",
+      "sha256": "b66b6094beea0729865c505f47d53b1a162fb0f16c9eb662bfee2880dc3e796d",
+      "gitBlob": "956e076c08cfefad3a2fb3133aa778da19449b26"
+    },
+    {
+      "path": "Emotes/teamwork.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/teamwork.png",
+      "sha256": "29cb61cec3c2c4100bf5918ff5274d815524857aaf41c68c27c811bd47c94dbe",
+      "gitBlob": "e6bf3ef56762b73aa079408e703aec941bdd76e2"
+    },
+    {
+      "path": "Emotes/i_will_destroy_you.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/i_will_destroy_you.png",
+      "sha256": "c69013d0ec22b9a69dcffd3897f4dd84dcb067c965092f9ae5bf8e1d23323cec",
+      "gitBlob": "33cdc3f0a5ad37e69f5387701ac037acd23ff817"
+    },
+    {
+      "path": "Emotes/not_today.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/not_today.png",
+      "sha256": "4d79a02786f1c486d84e1b5247d72543ef94bd164538260f0bf4c8ba19bcc4b5",
+      "gitBlob": "ab6a13a57c06ef36aabde9b2d0fac9cf80d939e1"
+    },
+    {
+      "path": "Emotes/oh.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/oh.png",
+      "sha256": "bfb37ae7c56738cee284961ea7a9b079377020b0bcef91cd5a8812ee1e1c13a9",
+      "gitBlob": "a2efcd70d2799e7d3c2be8418fbcd066b59c05fd"
+    },
+    {
+      "path": "Emotes/come_again.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/come_again.png",
+      "sha256": "7323af74d1656c6b1d911a950a354c52d4ee5d58094b60fe7a930de1be433a20",
+      "gitBlob": "ec6230da063c9106c44ca58a51154ff0b5a7ddda"
+    },
+    {
+      "path": "Emotes/magpie_oopsie.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/magpie_oopsie.png",
+      "sha256": "c2796ad8fce6d5e6b18e6044aa3e4a962ca6fc58233970261673d9ffab9e0c5f",
+      "gitBlob": "0f0131db3b7c7deecd7e384505c027b24973d483"
+    },
+    {
+      "path": "Emotes/such_foolishness.png",
+      "url": "https://raw.githubusercontent.com/darrenprx/lolPing/f24a51e5a11c2b31dab72d89a571cc4025ad3c98/assets/emotes/such_foolishness.png",
+      "sha256": "8f958a779d850565a8760267f47e5037dccb777af8118366b97f560a3cdcfcdf",
+      "gitBlob": "4dfa2d4c45bc2c73906f2064e8de6efeddc314b9"
     }
   ],
   "rendering": "Scalable CGPath silhouettes reconstructed from wheel atlases. Minimap icons are legacy resources and are no longer displayed.",
@@ -216,5 +480,11 @@
         41
       ]
     }
+  },
+  "emotes": {
+    "source": "https://github.com/darrenprx/lolPing",
+    "commit": "f24a51e5a11c2b31dab72d89a571cc4025ad3c98",
+    "copyright": "© Riot Games, Inc. Images are not covered by the source repository MIT license.",
+    "notice": "Emotes/NOTICE.txt"
   }
 }

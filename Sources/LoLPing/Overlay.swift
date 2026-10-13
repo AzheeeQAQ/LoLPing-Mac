@@ -30,8 +30,36 @@ private func text(_ string: String, at center: CGPoint, size: CGFloat, color: NS
 /// The atlas silhouettes, sector glow, center ornament and type are drawn
 /// independently at the current backing scale. No bitmap is magnified here.
 final class WheelView: NSView {
-    var emoteImages: [NSImage?]?
-    var emoteNames: [String] = []
+    private(set) var contents = WheelLayout.defaults
+    private var contentImages: [String: NSImage] = [:]
+    private var contentNames: [String: String] = [:]
+    func configure(_ library: EmoteLibrary) {
+        contents = library.wheel; contentImages = [:]; contentNames = [:]
+        for content in contents {
+            if case .emote(let id) = content {
+                contentImages[id] = library.image(id); contentNames[id] = library.name(content)
+            }
+        }
+        needsDisplay = true
+    }
+    private func title(_ content: WheelContent) -> String {
+        switch content {
+        case .ping(let kind): return kind.title
+        case .emote(let id): return contentNames[id] ?? "图片"
+        case .empty: return "留空"
+        }
+    }
+    private func drawContent(_ content: WheelContent, at p: CGPoint, scale s: CGFloat, weight: Double) {
+        switch content {
+        case .ping(let kind):
+            let side = CGFloat(22+8*weight)*s
+            Assets.draw(kind, in: CGRect(x: p.x-side/2, y: p.y-side/2, width: side, height: side), color: mix(kind.wheelIdleTint, kind.tint, weight))
+        case .emote(let id):
+            let side = CGFloat(40+8*weight)*s
+            if let image = contentImages[id] { drawEmoteImage(image, in: CGRect(x: p.x-side/2, y: p.y-side/2, width: side, height: side)) }
+        case .empty: text("·", at: p, size: 22*s, color: .darkGray)
+        }
+    }
     private(set) var selected: PingKind = .generic
     private(set) var direction: CGFloat?
     private var weights = Array(repeating: 0.0, count: 8)
@@ -92,7 +120,7 @@ final class WheelView: NSView {
         if let start = openingStart { context.setAlpha(CGFloat(ease((CACurrentMediaTime()-start)/0.09))) }
         let s = bounds.width/300, c = CGPoint(x: bounds.midX, y: bounds.midY)
         let outer = WheelGeometry.outerRadius*s, inner = WheelGeometry.centerRadius*s
-        for (index, kind) in PingKind.wheel.enumerated() {
+        for index in PingKind.wheel.indices {
             let degrees = CGFloat(90-index*45), theta = degrees * .pi/180
             let sector = NSBezierPath()
             sector.appendArc(withCenter: c, radius: outer, startAngle: degrees+22.5, endAngle: degrees-22.5, clockwise: true)
@@ -111,16 +139,7 @@ final class WheelView: NSView {
             divider.line(to: CGPoint(x: c.x+cos(boundary)*outer, y: c.y+sin(boundary)*outer))
             wheelGold.withAlphaComponent(0.30).setStroke(); divider.lineWidth = 0.55*s; divider.stroke()
             let p = CGPoint(x: c.x+cos(theta)*WheelGeometry.iconRadius*s, y: c.y+sin(theta)*WheelGeometry.iconRadius*s)
-            let side = CGFloat(22+8*weight)*s
-            let color = mix(kind.wheelIdleTint, kind.tint, weight)
-            if let images = emoteImages {
-                let imageSide = (40+8*weight)*s
-                let rect = CGRect(x: p.x-imageSide/2, y: p.y-imageSide/2, width: imageSide, height: imageSide)
-                if let image = images[index] { drawEmoteImage(image, in: rect) }
-                else { text("+", at: p, size: 20*s, color: .darkGray) }
-            } else {
-                Assets.draw(kind, in: CGRect(x: p.x-side/2, y: p.y-side/2, width: side, height: side), color: color)
-            }
+            drawContent(contents[index], at: p, scale: s, weight: weight)
         }
         let coreRect = CGRect(x: c.x-inner, y: c.y-inner, width: inner*2, height: inner*2)
         let core = NSBezierPath(ovalIn: coreRect)
@@ -146,16 +165,14 @@ final class WheelView: NSView {
             arc.appendArc(withCenter: c, radius: inner-7*s, startAngle: degrees-18, endAngle: degrees+18)
             wheelCyan.setStroke(); arc.lineWidth = 1.8*s; arc.stroke()
         }
-        if emoteImages != nil {
-            let index = PingKind.wheel.firstIndex(of: selected)
-            let title = index.map { emoteNames[$0].isEmpty ? "空格" : String(emoteNames[$0].prefix(8)) } ?? "表情"
-            text(title, at: c, size: 12*s, color: wheelCyan, weight: .semibold)
-            text(selected == .generic ? "移开选择" : "松开发送", at: CGPoint(x: c.x, y: c.y+21*s), size: 8*s, color: .lightGray)
-        } else if selected == .generic {
-            Assets.draw(.generic, in: CGRect(x: c.x-11*s, y: c.y+18*s, width: 22*s, height: 22*s))
-            text("信号", at: CGPoint(x: c.x, y: c.y+1*s), size: 13*s, color: PingKind.generic.tint, weight: .semibold)
+        let content = contents[WheelLayout.index(for: selected)]
+        let color: NSColor = { if case .ping(let kind) = content { return kind.tint }; return wheelCyan }()
+        if selected == .generic {
+            drawContent(content, at: CGPoint(x: c.x, y: c.y+18*s), scale: s, weight: 0)
+            text(String(title(content).prefix(7)), at: CGPoint(x: c.x, y: c.y-11*s), size: 10*s, color: color, weight: .semibold)
         } else {
-            text(selected.title, at: c, size: 13*s, color: selected.tint, weight: .semibold)
+            text(String(title(content).prefix(7)), at: c, size: 12*s, color: color, weight: .semibold)
+            text(content == .empty ? "不发送" : "松开发送", at: CGPoint(x: c.x, y: c.y+21*s), size: 8*s, color: .lightGray)
         }
         text("右键取消", at: CGPoint(x: c.x, y: c.y-31*s), size: 8.5*s, color: NSColor(white: 0.52, alpha: 0.9))
         context.restoreGState()
@@ -296,17 +313,14 @@ final class OverlayController {
         guard let label, !label.isEmpty else { return content }
         return content.union(PingEffectView.labelLayout(label, scale: s, width: pingPanel(scale: scale).width).pill)
     }
-    @discardableResult func showWheel(at anchor: CGPoint, scale: Double, emotes: EmoteLibrary? = nil) -> CGPoint {
+    @discardableResult func showWheel(at anchor: CGPoint, scale: Double, library: EmoteLibrary) -> CGPoint {
         hideWheel(animated: false)
         let side = CGFloat(300*scale)
         let screen = NSScreen.screens.first(where: { NSMouseInRect(anchor, $0.frame, false) }) ?? NSScreen.main
         let center = WheelGeometry.clampedCenter(anchor: anchor, frame: screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900), radius: side/2)
         let panel = OverlayPanel(frame: CGRect(x: center.x-side/2, y: center.y-side/2, width: side, height: side))
         let view = WheelView(frame: CGRect(x: 0, y: 0, width: side, height: side))
-        if let emotes {
-            view.emoteImages = emotes.slots.map { emotes.image($0) }
-            view.emoteNames = emotes.slots.map { id in emotes.items.first(where: { $0.id == id })?.name ?? "" }
-        }
+        view.configure(library)
         panel.contentView = view; panel.orderFrontRegardless(); view.open()
         wheel = panel; wheelView = view
         return center

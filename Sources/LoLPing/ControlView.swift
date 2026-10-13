@@ -21,7 +21,7 @@ struct ControlView: View {
                 header
                 statusCard
                 settingsCard
-                EmoteControlView(model: model, library: model.emotes)
+                WheelControlView(model: model, library: model.emotes)
                 RelayControlView(model: model, relay: model.relay)
                 lanCard
                 previewCard
@@ -54,12 +54,12 @@ struct ControlView: View {
             HStack {
                 Circle().fill(model.isEnabled ? Color.green : (model.awaitingPermission ? Palette.gold : Palette.secondary))
                     .frame(width: 7, height: 7)
-                Text("启用 Ping").font(.system(size: 17, weight: .semibold))
+                Text("启用信号").font(.system(size: 17, weight: .semibold))
                 Text(model.isEnabled ? "已开启" : (model.awaitingPermission ? "等待授权" : "已关闭"))
                     .font(.system(size: 11)).foregroundStyle(Palette.secondary)
                 Spacer()
-                Toggle("启用 Ping", isOn: Binding(get: { model.isEnabled || model.awaitingPermission }, set: { model.setEnabled($0) }))
-                    .labelsHidden().toggleStyle(.switch).accessibilityLabel("启用 Ping")
+                Toggle("启用信号", isOn: Binding(get: { model.isEnabled || model.awaitingPermission }, set: { model.setEnabled($0) }))
+                    .labelsHidden().toggleStyle(.switch).accessibilityLabel("启用信号")
             }
             Text(model.message).font(.system(size: 11)).foregroundStyle(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("pingStatus")
@@ -76,7 +76,7 @@ struct ControlView: View {
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("触发组合键", systemImage: "keyboard").font(.system(size: 12))
+                Label("轮盘快捷键", systemImage: "keyboard").font(.system(size: 12))
                 Spacer()
                 Text(model.chord.symbols).font(.system(size: 14, weight: .medium)).accessibilityLabel("当前组合键 \(model.chord.symbols)")
                 Button("自定义…") { editingShortcut = true }.buttonStyle(.bordered).controlSize(.small)
