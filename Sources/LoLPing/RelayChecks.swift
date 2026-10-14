@@ -24,7 +24,7 @@ enum RelayChecks {
             guard initialPings == 2, phase == "initial" else { return }
             print("PASS Swift clients: create/join and two-way signals with sender names")
             phase = "muted"; b.receiveEnabled = false
-            DispatchQueue.main.asyncAfter(deadline: .now()+0.2) { a.sendPing(.push) }
+            DispatchQueue.main.asyncAfter(deadline: .now()+0.2) { a.sendPing(.push, position: CGPoint(x: 0.23, y: 0.71)) }
             DispatchQueue.main.asyncAfter(deadline: .now()+1.5) {
                 guard !done else { return }
                 print("PASS Swift clients: receive switch suppresses signals")
@@ -39,11 +39,11 @@ enum RelayChecks {
             if phase == "initial" {
                 originalMember = b.memberID
                 DispatchQueue.main.asyncAfter(deadline: .now()+0.1) {
-                    a.sendPing(.missing); b.sendPing(.assist)
+                    a.sendPing(.missing, position: CGPoint(x: 0.23, y: 0.71)); b.sendPing(.assist, position: CGPoint(x: 0.23, y: 0.71))
                 }
             } else if phase == "resuming" {
                 guard b.room == originalRoom, b.memberID == originalMember else { fail("Resume changed identity"); return }
-                b.sendPing(.enemyVision)
+                b.sendPing(.enemyVision, position: CGPoint(x: 0.23, y: 0.71))
             }
         }
         a.onPing = { kind, sender in
@@ -63,7 +63,7 @@ enum RelayChecks {
         }
         c.onConnected = {
             guard phase == "replacement" else { fail("Unexpected replacement connection"); return }
-            DispatchQueue.main.asyncAfter(deadline: .now()+0.1) { a.sendPing(.allIn) }
+            DispatchQueue.main.asyncAfter(deadline: .now()+0.1) { a.sendPing(.allIn, position: CGPoint(x: 0.23, y: 0.71)) }
         }
         c.onPing = { kind, sender in
             guard phase == "replacement", kind == .allIn, sender == "甲" else { fail("Incorrect replacement signal"); return }

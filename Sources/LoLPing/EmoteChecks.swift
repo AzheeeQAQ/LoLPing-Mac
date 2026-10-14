@@ -128,11 +128,11 @@ enum EmoteChecks {
                 var gotA = 0, gotB = 0
                 a.onEmote = { value, sender in check(value == payload && sender == "表情乙" && EmoteLibrary.decode(value) != nil, "A receives correct remote image"); gotA += 1 }
                 b.onEmote = { value, sender in check(value == payload && sender == "表情甲" && EmoteLibrary.decode(value) != nil, "B receives correct remote image"); gotB += 1 }
-                a.sendEmote(payload); b.sendEmote(payload); wait { gotA == 1 && gotB == 1 }
+                a.sendEmote(payload, position: CGPoint(x: 0.23, y: 0.71)); b.sendEmote(payload, position: CGPoint(x: 0.23, y: 0.71)); wait { gotA == 1 && gotB == 1 }
                 check(gotA == 1 && gotB == 1, "two-way production relay image delivery")
-                spin(1.1); b.receiveEnabled = false; a.sendEmote(payload); spin(0.3); check(gotB == 1, "receive off suppresses image")
+                spin(1.1); b.receiveEnabled = false; a.sendEmote(payload, position: CGPoint(x: 0.23, y: 0.71)); spin(0.3); check(gotB == 1, "receive off suppresses image")
                 spin(1.1); b.receiveEnabled = true; b.reconnectAfterWake(); wait { b.state == .connected && a.peers.count == 2 }
-                a.sendEmote(payload); wait { gotB == 2 }; check(gotB == 2, "image delivery resumes after reconnect")
+                a.sendEmote(payload, position: CGPoint(x: 0.23, y: 0.71)); wait { gotB == 2 }; check(gotB == 2, "image delivery resumes after reconnect")
                 print("PASS production relay images: both directions, receive toggle and reconnect")
             }
             a.disconnect(); b.disconnect(); spin(0.2)

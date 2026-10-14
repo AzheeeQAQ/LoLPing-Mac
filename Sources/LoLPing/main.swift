@@ -2,6 +2,13 @@ import AppKit
 import AVFoundation
 import PingCore
 
+if CommandLine.arguments.contains("--input-position-check") {
+    exit(InputPositionChecks.run())
+}
+if let index = CommandLine.arguments.firstIndex(of: "--position-fixture-check"), CommandLine.arguments.count > index+1 {
+    exit(InputPositionChecks.receiveFixture(endpoint: CommandLine.arguments[index+1]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--session-check"), CommandLine.arguments.count > index+1 {
     exit(SessionChecks.run(endpoint: CommandLine.arguments[index+1]))
 }

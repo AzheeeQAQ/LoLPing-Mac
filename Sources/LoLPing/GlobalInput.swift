@@ -18,8 +18,10 @@ final class GlobalInput {
     var onUnavailable: (() -> Void)?
     private let mouseButtonsDown: () -> Bool
     private let specialKeysDown: () -> Modifiers
-    init(mouseButtonsDown: @escaping () -> Bool = { NSEvent.pressedMouseButtons != 0 }, specialKeysDown: @escaping () -> Modifiers = KeyboardEvent.specialKeysDown) {
-        self.mouseButtonsDown = mouseButtonsDown; self.specialKeysDown = specialKeysDown
+    private let mouseLocation: () -> CGPoint
+    init(mouseButtonsDown: @escaping () -> Bool = { NSEvent.pressedMouseButtons != 0 }, specialKeysDown: @escaping () -> Modifiers = KeyboardEvent.specialKeysDown,
+         mouseLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation }) {
+        self.mouseButtonsDown = mouseButtonsDown; self.specialKeysDown = specialKeysDown; self.mouseLocation = mouseLocation
     }
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -68,7 +70,7 @@ final class GlobalInput {
                 guard let self else { return }
                 let flags = CGEventSource.flagsState(.combinedSessionState)
                 self.selectChord(flags)
-                self.routeState(flags, at: NSEvent.mouseLocation)
+                self.routeState(flags, at: self.mouseLocation())
             }
             specialTimer = poll; RunLoop.main.add(poll, forMode: .common)
         }
@@ -147,14 +149,17 @@ final class GlobalInput {
         recoveryAttempts = 0
         switch type {
         case .flagsChanged:
-            selectChord(event.flags); routeState(event.flags, at: point(event))
+            // CGEvent.location describes mouse events. A keyboard/flags event
+            // can carry stale or unusable coordinates, especially after moving
+            // between displays. Capture the live pointer when the chord arms.
+            selectChord(event.flags); routeState(event.flags, at: mouseLocation())
         case .keyDown:
-            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: true, flags: event.flags, at: point(event))
+            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: true, flags: event.flags, at: mouseLocation())
         case .keyUp:
-            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: false, flags: event.flags, at: point(event))
+            return processKey(Int(event.getIntegerValueField(.keyboardEventKeycode)), isDown: false, flags: event.flags, at: mouseLocation())
         case Self.mediaEvent:
             if let native = NSEvent(cgEvent: event), let change = KeyboardEvent.keyChange(native) {
-                return processKey(change.key, isDown: change.down, flags: event.flags, at: point(event))
+                return processKey(change.key, isDown: change.down, flags: event.flags, at: mouseLocation())
             }
         case .mouseMoved:
             dispatch(machine.moved(to: point(event)))

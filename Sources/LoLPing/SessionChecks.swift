@@ -46,6 +46,36 @@ enum SessionChecks {
             spin(1.05)
         }
         print("PASS production relative positions: ping and image on \(frames.count) physical display(s), no global input event posted")
+        // Inspect the actual receiving panels, rather than only the decoded
+        // packet: the receiver's pointer chooses a display, never the anchor.
+        for relative in [CGPoint(x: 0.17, y: 0.83), CGPoint(x: 0.79, y: 0.24), CGPoint(x: 0.36, y: 0.62)] {
+            let pointer = NSEvent.mouseLocation
+            guard let index = LANGeometry.screenIndex(containing: pointer, in: frames) else { check(false, "receiver display"); continue }
+            let target = frames[index], expected = LANGeometry.denormalize(relative, in: target)
+            var existing = Set(NSApp.windows.map(\.windowNumber))
+            peer.sendPing(.enemyVision, position: relative)
+            func receivedPing() -> NSWindow? {
+                NSApp.windows.first { !existing.contains($0.windowNumber) && ($0.contentView as? PingEffectView)?.label == peer.displayName }
+            }
+            wait { receivedPing() != nil }
+            if let panel = receivedPing() {
+                let local = OverlayController.pingPanel(scale: model.scale)
+                let actual = CGPoint(x: panel.frame.minX-local.minX, y: panel.frame.minY-local.minY)
+                check(hypot(actual.x-expected.x, actual.y-expected.y) < 1, "received ping panel uses sender position: expected \(expected), actual \(actual), receiver pointer \(pointer)")
+            } else { check(false, "received ping creates overlay") }
+            existing = Set(NSApp.windows.map(\.windowNumber))
+            peer.sendEmote(model.emotes.payload(model.emotes.bundled.first!.id)!, position: relative)
+            func receivedImage() -> NSWindow? {
+                NSApp.windows.first { !existing.contains($0.windowNumber) && $0.contentView is EmoteEffectView }
+            }
+            wait { receivedImage() != nil }
+            if let panel = receivedImage() {
+                let center = WheelGeometry.clampedCenter(anchor: expected, frame: target, radius: CGFloat(110*model.scale))
+                check(hypot(panel.frame.midX-center.x, panel.frame.midY-center.y) < 1, "received image panel uses sender position")
+            } else { check(false, "received image creates overlay") }
+            spin(1.1)
+        }
+        print("PASS receiving overlays: actual ping and image panel frames match the sender, independently of the receiver pointer")
         model.shutdown(); spin(0.2)
         restarted.serverAddress = endpoint
         check(restarted.restoreSavedSession(), "saved room restores after shutdown/update")

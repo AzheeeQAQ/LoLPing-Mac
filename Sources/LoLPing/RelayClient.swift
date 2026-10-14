@@ -26,8 +26,9 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     @Published private(set) var memberID = ""
     var onPing: ((PingKind, String) -> Void)?
     var onEmote: ((EmotePayload, String) -> Void)?
-    var onPositionedPing: ((PingKind, String, CGPoint?) -> Void)?
-    var onPositionedEmote: ((EmotePayload, String, CGPoint?) -> Void)?
+    var onPositionedPing: ((PingKind, String, CGPoint) -> Void)?
+    var onPositionedEmote: ((EmotePayload, String, CGPoint) -> Void)?
+    @Published private(set) var positionWarning: String?
     private var supportsEmotes = false
     private var nextEmote = Date.distantPast
     var onConnected: (() -> Void)?
@@ -121,22 +122,22 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         token = nil; room = ""; memberID = ""; peers = []
         state = .idle; status = "联动已断开。"
     }
-    func sendPing(_ kind: PingKind, position: CGPoint? = nil) {
-        if let position, !RelayPosition(position).isValid { return }
+    func sendPing(_ kind: PingKind, position: CGPoint) {
+        guard RelayPosition(position).isValid else { return }
         guard canSend, Date() >= nextSend else { return }
         nextSend = Date().addingTimeInterval(0.15)
         var packet = RelayMessage(type: "ping")
         packet.eventID = UUID().uuidString; packet.kind = kind
-        packet.position = position.map(RelayPosition.init)
+        packet.position = RelayPosition(position)
         send(packet, generation: generation)
     }
-    func sendEmote(_ emote: EmotePayload, position: CGPoint? = nil) {
-        if let position, !RelayPosition(position).isValid { return }
+    func sendEmote(_ emote: EmotePayload, position: CGPoint) {
+        guard RelayPosition(position).isValid else { return }
         guard canSend, emote.isValid, Date() >= nextEmote else { return }
         guard supportsEmotes else { status = "服务器需要更新后才能传送表情。"; return }
         nextEmote = Date().addingTimeInterval(1)
         var packet = RelayMessage(type: "emote"); packet.eventID = UUID().uuidString; packet.emote = emote
-        packet.position = position.map(RelayPosition.init)
+        packet.position = RelayPosition(position)
         send(packet, generation: generation)
     }
     func reconnectAfterWake() {
@@ -184,7 +185,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     private func sendHello(generation current: Int) {
         guard wanted, generation == current else { return }
         var hello = RelayMessage(type: "hello")
-        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1"]
+        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1", "relative-position-v1"]
         hello.action = token == nil ? action : "resume"
         hello.room = room.isEmpty ? nil : room; hello.token = token
         send(hello, generation: current)
@@ -242,15 +243,22 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             guard !recentIDs.contains(id) else { return }
             recentIDs.append(id)
             if recentIDs.count > 128 { recentIDs.removeFirst() }
-            if let position = packet.position, !position.isValid { return }
-            if receiveEnabled { onPing?(kind, sender.name); onPositionedPing?(kind, sender.name, packet.position?.point) }
+            guard receiveEnabled else { return }
+            guard let position = packet.position, position.isValid else {
+                positionWarning = "朋友的信号缺少有效落点，未显示。请双方更新后重试。"; return
+            }
+            positionWarning = nil
+            onPing?(kind, sender.name); onPositionedPing?(kind, sender.name, position.point)
         case "emote":
             guard state == .connected, receiveEnabled, let rawID = packet.eventID, UUID(uuidString: rawID) != nil,
                   let emote = packet.emote, emote.isValid, let sender = packet.sender,
                   sender.id != memberID, peers.contains(sender), !recentIDs.contains(rawID.lowercased()) else { return }
             recentIDs.append(rawID.lowercased()); if recentIDs.count > 128 { recentIDs.removeFirst() }
-            if let position = packet.position, !position.isValid { return }
-            onEmote?(emote, sender.name); onPositionedEmote?(emote, sender.name, packet.position?.point)
+            guard let position = packet.position, position.isValid else {
+                positionWarning = "朋友的表情缺少有效落点，未显示。请双方更新后重试。"; return
+            }
+            positionWarning = nil
+            onEmote?(emote, sender.name); onPositionedEmote?(emote, sender.name, position.point)
         case "error":
             if ["room_missing", "resume_expired", "invalid_token"].contains(packet.code ?? ""), let endpoint { resumeStore.remove(endpoint) }
             if ["rate_limited", "emote_unsupported"].contains(packet.code ?? "") { status = packet.message ?? "发送太快，请稍等一下。" }
@@ -305,7 +313,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         state = .failed; status = message; onFailure?(message)
     }
     private func closeTransport(leaving: Bool = false) {
-        generation += 1; supportsEmotes = false
+        generation += 1; supportsEmotes = false; positionWarning = nil
         handshakeTimer?.invalidate(); handshakeTimer = nil
         heartbeatTimer?.invalidate(); heartbeatTimer = nil
         let oldSocket = socket, oldSession = session

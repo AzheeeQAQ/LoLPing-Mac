@@ -263,6 +263,10 @@ private struct RelayControlView: View {
                 Text(model.relayEnabled ? relay.status : "未开启 · 打开开关后创建或加入房间")
                     .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("relayStatus")
             }.font(.system(size: 11)).foregroundStyle(Palette.secondary)
+            if model.relayEnabled, let warning = relay.positionWarning {
+                Text(warning).font(.system(size: 11)).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("relayPositionWarning")
+            }
             HStack(spacing: 12) {
                 Toggle("接收朋友信号", isOn: $relay.receiveEnabled).toggleStyle(.checkbox)
                 Toggle("静音朋友", isOn: $relay.muteTeammates).toggleStyle(.checkbox)

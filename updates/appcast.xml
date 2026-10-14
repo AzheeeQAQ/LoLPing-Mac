@@ -6,6 +6,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.9.2</title>
+            <pubDate>Tue, 13 Oct 2026 23:57:40 -0700</pubDate>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>1.9.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.9.2：修复轮盘位置同步
+
+• 快捷键触发时直接读取真实鼠标位置，修复键盘事件坐标失效导致信号落点丢失的问题。
+• 朋友鼠标仅决定在哪块屏幕显示，信号和表情使用发送者在屏幕内的相对位置。
+• 收到缺少有效落点的消息时提示并跳过，避免错误显示在朋友鼠标旁。
+• 保留原房间、个人设置、轮盘和固定签名。双方请更新至此版本。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.9.2/downloads/LoLPing-v1.9.2-update-macOS-universal.zip" length="5700813" type="application/octet-stream" sparkle:edSignature="WIQCHM9VV/5TLj/jIb7c1Eiy39nL+rdjFpQWQTPt0+kquPpLDadusGxYgqExy20lCSvqLKw6dGfBa7oOJgmgBw=="/>
+        </item>
+        <item>
             <title>1.9.1</title>
             <pubDate>Tue, 13 Oct 2026 19:06:50 -0700</pubDate>
             <sparkle:version>13</sparkle:version>
@@ -92,6 +107,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: vyVaATvDN27SUCLXVW7wm2CE+X2IdLj26jf2mxsGNHrf09zx0UXS6NtMYi31l7zZm8Xb9ROwLdAZwE/fWNT+CA==
-length: 7283
+edSignature: Wzxbqwv62PaRkVtA49krHgMKRI6Zb9kbqSQJSsk0Zc65R61FfEAE7+1UFJxcrznspuqjZQCThXq5Ja5mqA5/Bw==
+length: 8473
 -->
