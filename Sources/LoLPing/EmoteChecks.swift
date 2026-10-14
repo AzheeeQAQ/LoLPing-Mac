@@ -149,12 +149,13 @@ enum EmoteChecks {
                 var receivedImages: [String] = [], receivedPings: [PingKind] = []
                 peer.onEmote = { value, _ in check(EmoteLibrary.decode(value) != nil, "bundled image receives as actual PNG"); receivedImages.append(value.id) }
                 peer.onPing = { value, _ in receivedPings.append(value) }
-                let input = GlobalInput(mouseButtonsDown: { false })
+                let gestureAnchor = CGPoint(x: 300, y: 300)
+                let input = GlobalInput(mouseButtonsDown: { false }, mouseLocation: { gestureAnchor })
                 input.configure(chord: TriggerChord(modifiers: [.control], keyCode: 0)!)
                 input.onAction = { if case .commit(let selection, let anchor) = $0 { model.sendWheelSelection(selection, at: anchor) } }
                 func gesture(_ vector: CGPoint) {
                     let top = NSScreen.screens.first?.frame.maxY ?? 0
-                    let anchor = CGPoint(x: 300, y: 300)
+                    let anchor = gestureAnchor
                     let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)!
                     down.flags = .maskControl; down.location = CGPoint(x: anchor.x, y: top-anchor.y)
                     check(input.process(.keyDown, down), "shared trigger down is swallowed")
