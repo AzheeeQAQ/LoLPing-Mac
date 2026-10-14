@@ -2,8 +2,8 @@ FROM node:24-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-COPY server.mjs gallery.mjs ./
-RUN mkdir -p /data/gallery && chown node:node /data/gallery
+COPY server.mjs gallery.mjs rooms.mjs ./
+RUN mkdir -p /data/gallery /data/sessions && chown node:node /data/gallery /data/sessions
 USER node
 ENV HOST=0.0.0.0 PORT=8787
 EXPOSE 8787

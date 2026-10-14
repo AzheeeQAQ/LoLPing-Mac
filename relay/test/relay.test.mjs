@@ -231,3 +231,22 @@ test('image hash, dimensions, size and capabilities are checked', async (t) => {
     a.send({ type: 'emote', eventID: randomUUID(), emote }); assert.equal((await a.next('error')).code, 'invalid_emote');
   }
 });
+
+test('relative positions cross rooms for both signals and images; old packets stay compatible', async t => {
+  const {url}=await fixture(t);
+  const a=await peer(url), aw=await a.hello('create',{capabilities:['emote-png-v1']});
+  const b=await peer(url); await b.hello('join',{room:aw.room,capabilities:['emote-png-v1']});
+  a.send({...ping('assist'),position:{nx:0.17,ny:0.83}});
+  assert.deepEqual((await b.next('ping')).position,{nx:0.17,ny:0.83});
+  b.send({type:'emote',eventID:randomUUID(),emote:emoteFixture(),position:{nx:0.91,ny:0.08}});
+  assert.deepEqual((await a.next('emote')).position,{nx:0.91,ny:0.08});
+  a.send(ping()); assert.equal((await b.next('ping')).position,undefined);
+});
+
+test('invalid relative positions are rejected before forwarding', async t => {
+  const {url}=await fixture(t);
+  for(const position of [{nx:-1,ny:0},{nx:0,ny:2},{nx:'0.5',ny:0.5},null,[0.2,0.3],{nx:0.1}]) {
+    const a=await peer(url); await a.hello('create'); a.send({...ping(),position});
+    assert.equal((await a.next('error')).code,'invalid_position');
+  }
+});

@@ -1,4 +1,14 @@
 import Foundation
+import CoreGraphics
+
+public struct RelayPosition: Codable, Equatable {
+    public let nx: Double
+    public let ny: Double
+    public init(nx: Double, ny: Double) { self.nx = nx; self.ny = ny }
+    public init(_ point: CGPoint) { nx = point.x; ny = point.y }
+    public var isValid: Bool { nx.isFinite && ny.isFinite && (0...1).contains(nx) && (0...1).contains(ny) }
+    public var point: CGPoint { CGPoint(x: nx, y: ny) }
+}
 
 public enum RelayProtocol {
     public static let version = 1
@@ -46,6 +56,7 @@ public struct RelayMessage: Codable {
     public var kind: PingKind?
     public var capabilities: [String]?
     public var emote: EmotePayload?
+    public var position: RelayPosition?
     public var sender: RelayPeer?
     public var code: String?
     public var message: String?

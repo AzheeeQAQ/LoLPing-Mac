@@ -2,6 +2,10 @@ import AppKit
 import AVFoundation
 import PingCore
 
+if let index = CommandLine.arguments.firstIndex(of: "--session-check"), CommandLine.arguments.count > index+1 {
+    exit(SessionChecks.run(endpoint: CommandLine.arguments[index+1]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--gallery-check"), CommandLine.arguments.count > index+2 {
     exit(GalleryChecks.run(endpoint: CommandLine.arguments[index+1], screenshots: URL(fileURLWithPath: CommandLine.arguments[index+2])))
 }

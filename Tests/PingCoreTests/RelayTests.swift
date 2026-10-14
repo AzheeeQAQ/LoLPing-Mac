@@ -28,4 +28,30 @@ final class RelayTests {
             XCTAssertEqual(decoded.eventID, message.eventID)
         }
     }
+    func testRelativePositionsAcrossDisplays() {
+        let frames = [CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                      CGRect(x: -2560, y: -300, width: 2560, height: 1440),
+                      CGRect(x: 0, y: 1080, width: 1440, height: 900)]
+        for source in frames {
+            for destination in frames {
+                for point in [CGPoint(x: 0.1, y: 0.2), CGPoint(x: 0.9, y: 0.8), CGPoint(x: 0.25, y: 0.75)] {
+                    let anchor = LANGeometry.denormalize(point, in: source)
+                    let relative = RelayPosition(LANGeometry.normalize(anchor, in: source))
+                    XCTAssertEqual(relative.isValid, true)
+                    var message = RelayMessage(type: "ping"); message.position = relative
+                    let decoded = try! JSONDecoder().decode(RelayMessage.self, from: JSONEncoder().encode(message))
+                    XCTAssertEqual(decoded.position, relative)
+                    let receiver = LANGeometry.denormalize(decoded.position!.point, in: destination)
+                    let normalizedAgain = LANGeometry.normalize(receiver, in: destination)
+                    XCTAssertEqual(abs(normalizedAgain.x-point.x) < 0.00001, true)
+                    XCTAssertEqual(abs(normalizedAgain.y-point.y) < 0.00001, true)
+                }
+            }
+        }
+        for point in [RelayPosition(nx: -0.1, ny: 0.5), RelayPosition(nx: 0.5, ny: 1.1), RelayPosition(nx: .nan, ny: 0.5), RelayPosition(nx: 0.5, ny: .infinity)] {
+            XCTAssertEqual(point.isValid, false)
+        }
+        XCTAssertEqual(try! JSONDecoder().decode(RelayMessage.self, from: Data("{\"type\":\"ping\"}".utf8)).position, nil)
+    }
+
 }

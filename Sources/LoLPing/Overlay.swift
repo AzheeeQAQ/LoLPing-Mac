@@ -351,11 +351,12 @@ final class OverlayController {
         effects.append((id, panel, cleanup, teammate))
         DispatchQueue.main.asyncAfter(deadline: .now()+2.05, execute: cleanup)
     }
-    func showEmote(_ image: NSImage, at point: CGPoint, scale: Double, label: String? = nil, teammate: Bool = false) {
+    func showEmote(_ image: NSImage, at point: CGPoint, scale: Double, label: String? = nil, teammate: Bool = false, screenFrame: CGRect? = nil) {
         if effects.count >= 16 { let oldest = effects.removeFirst(); oldest.cleanup.cancel(); closeEffect(oldest.panel) }
         let side = CGFloat(220*scale)
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(point, $0.frame, false) }) ?? NSScreen.main
-        let center = WheelGeometry.clampedCenter(anchor: point, frame: screen?.frame ?? .zero, radius: side/2)
+        let frames = NSScreen.screens.map(\.frame)
+        let target = screenFrame ?? LANGeometry.screenIndex(containing: point, in: frames).map { frames[$0] } ?? frames.first ?? .zero
+        let center = WheelGeometry.clampedCenter(anchor: point, frame: target, radius: side/2)
         let panel = OverlayPanel(frame: CGRect(x: center.x-side/2, y: center.y-side/2, width: side, height: side))
         let view = EmoteEffectView(frame: CGRect(origin: .zero, size: panel.frame.size), image: image, label: label)
         panel.contentView = view; panel.orderFrontRegardless(); view.start()

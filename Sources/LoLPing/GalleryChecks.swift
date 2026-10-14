@@ -64,7 +64,7 @@ enum GalleryChecks {
             check(!b.canDelete(id) && b.items.first(where: { $0.id == id })?.uploader == "公共库验证", "duplicate cannot reclaim original upload")
             restarted.disconnect()
             let model = AppModel(defaults: prefsA, emoteDirectory: scratch.appendingPathComponent("original"))
-            defer { model.shutdown() }
+            defer { model.leaveRelayRoom(); model.shutdown() }
             model.relayEnabled = true; model.relay.serverAddress = endpoint
             let hosting = NSHostingView(rootView: GalleryView(model: model, library: model.emotes, gallery: a, relay: model.relay, slot: 8)
                 .tint(Color(red: 0.83, green: 0.70, blue: 0.44)))

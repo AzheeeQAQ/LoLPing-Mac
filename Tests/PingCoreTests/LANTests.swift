@@ -172,6 +172,8 @@ final class LANTests {
         XCTAssertEqual(LANGeometry.screenIndex(containing: CGPoint(x: 0, y: 900), in: frames), 0)
         XCTAssertEqual(LANGeometry.screenIndex(containing: CGPoint(x: -0.5, y: 500), in: frames), 1)
         XCTAssertEqual(LANGeometry.screenIndex(containing: CGPoint(x: 5000, y: 5000), in: frames), nil)
+        XCTAssertEqual(LANGeometry.screenIndex(containing: CGPoint(x: -960, y: frames[1].minY), in: frames), 1)
+        XCTAssertEqual(LANGeometry.screenIndex(containing: CGPoint(x: frames[1].minX, y: frames[1].minY), in: frames), 1)
         XCTAssertEqual(LANGeometry.normalize(CGPoint(x: -960, y: 360), in: left), CGPoint(x: 0.5, y: 0.5))
         XCTAssertEqual(LANGeometry.normalize(CGPoint(x: 0, y: 0), in: main), CGPoint(x: 0, y: 0))
         XCTAssertEqual(LANGeometry.normalize(CGPoint(x: 1440, y: 900), in: main), CGPoint(x: 1, y: 1))

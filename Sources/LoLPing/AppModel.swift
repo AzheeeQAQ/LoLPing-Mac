@@ -100,8 +100,8 @@ final class AppModel: ObservableObject {
         lan.onStatus = { [weak self] status in self?.lanStatus = status; self?.onStateChange?() }
         lan.onPeers = { [weak self] peers in self?.lanPeers = peers; self?.onStateChange?() }
         lan.onReceive = { [weak self] message, playSound in self?.showTeammate(message, playSound: playSound) }
-        relay.onPing = { [weak self] kind, name in self?.showRemotePing(kind, sender: name) }
-        relay.onEmote = { [weak self] payload, name in self?.showReceivedEmote(payload, sender: name, position: nil) }
+        relay.onPositionedPing = { [weak self] kind, name, point in self?.showRemotePing(kind, sender: name, position: point) }
+        relay.onPositionedEmote = { [weak self] payload, name, point in self?.showReceivedEmote(payload, sender: name, position: point, fromRelay: true) }
         relay.onFailure = { [weak self] _ in self?.clearTeammateEffects() }
         relayObservation = relay.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
@@ -135,10 +135,15 @@ final class AppModel: ObservableObject {
     func restoreState() {
         if defaults.bool(forKey: "enabled") {
             if GlobalInput.isTrusted { setEnabled(true) }
-            else { message = "上次已启用，但当前缺少辅助功能权限。开启开关可重新授权。" }
+            else {
+                awaitingPermission = true
+                message = "上次已启用，等待辅助功能授权。授权后会自动恢复，无需重设快捷键。"
+                permissionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.checkPermission() }
+            }
         }
         if !Assets.missingFiles.isEmpty { message = "素材缺失，请重新构建应用：" + Assets.missingFiles.joined(separator: "、") }
         restartLAN()
+        if relayEnabled { relay.restoreSavedSession() }
     }
     func setEnabled(_ value: Bool) {
         if !value {
@@ -203,7 +208,7 @@ final class AppModel: ObservableObject {
         gallery.disconnect()
         // Preserve the user's enabled preference across an intentional app quit.
         permissionTimer?.invalidate(); input.stop(); overlay.clear(); sound.stopAll(); stopPreview()
-        lan.stop(); relay.disconnect(); clearTeammateEffects()
+        lan.stop(); relay.suspend(); clearTeammateEffects()
     }
 
     // MARK: 服务器联机
@@ -211,12 +216,21 @@ final class AppModel: ObservableObject {
     func createRelayRoom() { guard relayEnabled else { return }; relay.createRoom() }
     func joinRelayRoom() { guard relayEnabled else { return }; relay.joinRoom() }
     func leaveRelayRoom() { relay.disconnect(); clearTeammateEffects() }
-    func sendRelayTest() { guard relayEnabled else { return }; relay.sendPing(.generic) }
-    private func showRemotePing(_ kind: PingKind, sender: String) {
-        guard relayEnabled, relay.receiveEnabled, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let center = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
-        overlay.showPing(kind, at: center, scale: scale, label: sender, teammate: true)
+    func sendRelayTest() { guard relayEnabled else { return }; relay.sendPing(.generic, position: relativePosition(NSEvent.mouseLocation)) }
+    private func showRemotePing(_ kind: PingKind, sender: String, position: CGPoint?) {
+        guard relayEnabled, relay.receiveEnabled, let frame = mouseScreenFrame else { return }
+        let anchor = position.map { LANGeometry.denormalize($0, in: frame) } ?? NSEvent.mouseLocation
+        overlay.showPing(kind, at: anchor, scale: scale, label: sender, teammate: true)
         if !relay.muteTeammates { teammateSound.play(kind, volume: volume) }
+    }
+    private var mouseScreenFrame: CGRect? {
+        let frames = NSScreen.screens.map(\.frame)
+        return LANGeometry.screenIndex(containing: NSEvent.mouseLocation, in: frames).map { frames[$0] } ?? frames.first
+    }
+    private func relativePosition(_ point: CGPoint) -> CGPoint? {
+        let frames = NSScreen.screens.map(\.frame)
+        guard let index = LANGeometry.screenIndex(containing: point, in: frames) else { return nil }
+        return LANGeometry.normalize(point, in: frames[index])
     }
 
     // MARK: 局域网联机
@@ -314,7 +328,7 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now()+4, execute: cleanup)
     }
     private func sendToTeammates(_ kind: PingKind, at anchor: CGPoint) {
-        if relayEnabled && relay.isActive { relay.sendPing(kind); return }
+        if relayEnabled && relay.isActive { relay.sendPing(kind, position: relativePosition(anchor)); return }
         guard lanEnabled, !lanRoomCode.isEmpty else { return }
         let frames = NSScreen.screens.map(\.frame)
         guard let frame = LANGeometry.screenIndex(containing: anchor, in: frames).map({ frames[$0] }) ?? NSScreen.main?.frame else { return }
@@ -346,35 +360,28 @@ final class AppModel: ObservableObject {
         editingShortcut = false; restartInputIfNeeded()
     }
     func previewEmote(_ id: String) {
-        guard let image = emotes.image(id), let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        overlay.showEmote(image, at: CGPoint(x: screen.frame.midX, y: screen.frame.midY), scale: scale)
+        guard let image = emotes.image(id) else { return }
+        overlay.showEmote(image, at: NSEvent.mouseLocation, scale: scale)
     }
     func sendEmote(_ id: String, at point: CGPoint? = nil) {
-        guard let payload = emotes.payload(id), let image = emotes.image(id),
-              let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let anchor = point ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        guard let payload = emotes.payload(id), let image = emotes.image(id) else { return }
+        let anchor = point ?? NSEvent.mouseLocation
         overlay.showEmote(image, at: anchor, scale: scale)
-        if relayEnabled && relay.isActive { relay.sendEmote(payload) }
-        else if lanEnabled, !lanRoomCode.isEmpty {
-            let frame = NSScreen.screens.first(where: { NSMouseInRect(anchor, $0.frame, false) })?.frame ?? screen.frame
-            lan.sendEmote(payload, at: LANGeometry.normalize(anchor, in: frame))
-        }
+        if relayEnabled && relay.isActive { relay.sendEmote(payload, position: relativePosition(anchor)) }
+        else if lanEnabled, !lanRoomCode.isEmpty, let relative = relativePosition(anchor) { lan.sendEmote(payload, at: relative) }
     }
-    private func showReceivedEmote(_ payload: EmotePayload, sender: String, position: CGPoint?) {
+    private func showReceivedEmote(_ payload: EmotePayload, sender: String, position: CGPoint?, fromRelay: Bool = false) {
         guard let image = EmoteLibrary.decode(payload) else { return }
-        if position == nil { guard relayEnabled, relay.receiveEnabled else { return } }
+        if fromRelay { guard relayEnabled, relay.receiveEnabled else { return } }
         else { guard lanEnabled else { return } }
-        let screens = NSScreen.screens
-        let screen = position == nil ? (NSScreen.main ?? screens.first) : (screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main)
-        guard let screen else { return }
-        let anchor = position.map { LANGeometry.denormalize($0, in: screen.frame) } ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
-        overlay.showEmote(image, at: anchor, scale: scale, label: sender, teammate: true)
+        guard let frame = mouseScreenFrame else { return }
+        let anchor = position.map { LANGeometry.denormalize($0, in: frame) } ?? NSEvent.mouseLocation
+        overlay.showEmote(image, at: anchor, scale: scale, label: sender, teammate: true, screenFrame: frame)
     }
     func previewWheelContent(_ content: WheelContent) {
         switch content {
         case .ping(let kind):
-            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-            overlay.showPing(kind, at: CGPoint(x: screen.frame.midX, y: screen.frame.midY), scale: scale)
+            overlay.showPing(kind, at: NSEvent.mouseLocation, scale: scale)
             sound.play(kind, volume: volume)
         case .emote(let id): previewEmote(id)
         case .empty: break
@@ -387,8 +394,7 @@ final class AppModel: ObservableObject {
     func sendWheelContent(_ content: WheelContent, at point: CGPoint? = nil) {
         switch content {
         case .ping(let kind):
-            guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-            let anchor = point ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+            let anchor = point ?? NSEvent.mouseLocation
             overlay.showPing(kind, at: anchor, scale: scale)
             sound.play(kind, volume: volume)
             sendToTeammates(kind, at: anchor)

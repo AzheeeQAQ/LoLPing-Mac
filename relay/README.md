@@ -135,10 +135,18 @@ npm start
 
 `gallery_list` / `gallery_get` / `gallery_upload` / `gallery_delete` 携带 UUID `requestID`，响应为对应 `gallery_result`。上传需带名称、上传昵称、现有 `EmotePayload` 和 64 位十六进制的删除凭证；客户端先保存凭证，保证超时重试仍有所有权。服务端只保存凭证哈希，不在公共列表或下载响应中返回。已存在的图片保留原名称、原上传者和原删除权限。删除需匹配原凭证；在客户端删除私人副本不会自动删除公共图片。
 
-备份时同时备份 `gallery_data` 和原有 Caddy 证书卷。不要使用 `docker compose down -v`，这会删除持久卷。信号房间仍保存在内存，服务重启后需重新创建。
+备份时同时备份 `gallery_data` 和原有 Caddy 证书卷。不要使用 `docker compose down -v`，这会删除持久卷。1.9.0 起可同时启用持久房间，见下一节。
 
 ```sh
 npm test
 # 创建并清理合成公共图片，验证生产 Swift 客户端；不读取私人图片：
 ../dist/LoLPing.app/Contents/MacOS/LoLPing --gallery-check ws://127.0.0.1:8787/ws /tmp/lolping-gallery-check
 ```
+
+## 持久房间与相对坐标（1.9.0）
+
+设置 `SESSION_DIRECTORY=/data/sessions`；Compose 的独立私有卷 `session_data` 会保留房间和成员编号、昵称、令牌 SHA-256。不写入明文成员令牌、信号历史、图片事件或鼠标坐标。目录只供 node 用户写入，索引文件以 0600 权限原子写入；每分钟保存在线成员检查点，正常断线或服务停止立即保存。离线成员默认保留 30 天，明确 `leave` 会释放席位并在没有成员时删除房间。服务器重启后原客户端可用 `resume` 恢复原成员；客户端正常退出/更新应仅断开传输，不发送 `leave`。
+
+`ping` 和 `emote` 可携带 `position: {nx, ny}`，每个分量必须为 0–1 的有限数字；原点在发送屏幕左下。接收者在自己鼠标所在显示器按比例定位。旧客户端忽略新增字段，旧消息无坐标时接收端使用当前鼠标位置。坐标不进入持久房间文件。
+
+升级前没有保存凭证的旧版客户端首次需要连接一次；此后 1.9.0 保存到本机钥匙串，后续应用更新和中继重启均可恢复。备份时同时保留 `session_data`、`gallery_data` 和 Caddy 卷。未配置 `SESSION_DIRECTORY` 时保留原 60 秒临时房间行为。

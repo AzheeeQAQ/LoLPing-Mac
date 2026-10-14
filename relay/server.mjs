@@ -4,11 +4,13 @@ import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
 import WebSocket, { WebSocketServer } from 'ws';
 import { GalleryStore, validAssetID } from './gallery.mjs';
+import { RoomStore } from './rooms.mjs';
 
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVision', 'missing', 'enemyVision', 'generic']);
 const emoteCapability = 'emote-png-v1';
 const maxMessageBytes = 49_152;
+const validPosition = (p) => p && typeof p === 'object' && !Array.isArray(p) && Number.isFinite(p.nx) && Number.isFinite(p.ny) && p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1;
 function validEmote(value) {
   if (!value || typeof value !== 'object' || !/^[0-9a-f]{64}$/.test(value.id) || !validName(value.name) ||
       typeof value.png !== 'string' || value.png.length > 43_692 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.png)) return false;
@@ -25,17 +27,24 @@ const validName = (value) => typeof value === 'string' && value.trim().length > 
 
 export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections = 1000, heartbeatMs = 25_000,
   trustProxy = false, maxConnectionsPerAddress = 20, galleryDirectory = null, maxGalleryItems = 500,
-  galleryUploadsPerMinute = 12 } = {}) {
-  for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress, galleryUploadsPerMinute]) {
+  galleryUploadsPerMinute = 12, sessionDirectory = null, roomRetentionMs = 30*24*60*60*1000 } = {}) {
+  for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress, galleryUploadsPerMinute, roomRetentionMs]) {
     if (!Number.isInteger(value) || value < 1) throw new Error('Relay limits must be positive integers');
   }
-  const rooms = new Map();
+  const roomStore = sessionDirectory ? new RoomStore(sessionDirectory, { retentionMs: roomRetentionMs, maxRooms, validRoom, validUUID, validName }) : null;
+  const rooms = roomStore?.rooms ?? new Map();
+  const offlineRetention = roomStore ? roomRetentionMs : graceMs;
+  let storageHealthy = true;
+  const persistRooms = () => {
+    try { roomStore?.save(rooms); storageHealthy = true; return true; }
+    catch { storageHealthy = false; console.error('Unable to persist LoLPing rooms.'); return false; }
+  };
   const gallery = galleryDirectory ? new GalleryStore(galleryDirectory, { maxItems: maxGalleryItems, validate: validEmote }) : null;
   const uploadWindows = new Map();
   const byAddress = new Map();
   const server = http.createServer((req, res) => {
     const healthy = req.url === '/health' && req.method === 'GET';
-    res.writeHead(healthy ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.writeHead(healthy ? (storageHealthy ? 200 : 503) : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(healthy ? { status: 'ok', protocol: 1 } : { error: 'not_found' }));
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: maxMessageBytes, perMessageDeflate: false });
@@ -52,7 +61,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   };
   const prune = (room) => {
     for (const [id, member] of room.members) {
-      if (!member.ws && Date.now() - member.disconnectedAt >= graceMs) room.members.delete(id);
+      if (!member.ws && Date.now() - member.disconnectedAt >= offlineRetention) room.members.delete(id);
     }
     if (room.members.size === 0) rooms.delete(room.code);
   };
@@ -152,28 +161,31 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
             reject(ws, 'invalid_token', '重连凭证无效，请重新加入房间。'); return;
           }
           member = [...room.members.values()].find((candidate) =>
-            timingSafeEqual(Buffer.from(candidate.token), Buffer.from(packet.token)));
+            timingSafeEqual(Buffer.from(candidate.tokenHash, 'hex'), Buffer.from(createHash('sha256').update(packet.token).digest('hex'), 'hex')));
           if (!member) { reject(ws, 'resume_expired', '重连已超时，请重新加入房间。'); return; }
           if (member.ws) { member.ws.close(1008, 'session_replaced'); }
-          member.ws = ws; member.disconnectedAt = null;
+          member.token = packet.token; member.ws = ws; member.disconnectedAt = null;
         } else {
-          if (room.members.size >= 2) { reject(ws, 'room_full', '房间已满；断线成员会保留席位 60 秒。'); return; }
+          if (room.members.size >= 2) { reject(ws, 'room_full', roomStore ? '房间已满；已保存成员可通过原凭证恢复。' : '房间已满；断线成员会保留席位 60 秒。'); return; }
           member = { id: randomUUID(), token: randomBytes(32).toString('hex'), name: packet.name.trim(), ws,
             disconnectedAt: null, recentIDs: [] };
+          member.tokenHash = createHash('sha256').update(member.token).digest('hex');
           room.members.set(member.id, member);
         }
         member.emotes = Array.isArray(packet.capabilities) && packet.capabilities.includes(emoteCapability);
         clearTimeout(authTimer);
+        if (!persistRooms()) { reject(ws, 'storage_failed', '房间保存失败，请稍后重试。'); return; }
         send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
-          memberID: member.id, peers: roster(room), capabilities: [emoteCapability] });
+          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', ...(roomStore ? ['persistent-session-v1'] : [])] });
         broadcastPeers(room); return;
       }
       // A replaced transport can never send using its former member identity.
       if (member.ws !== ws) { ws.close(1008, 'session_replaced'); return; }
       if (packet.type === 'leave') {
         room.members.delete(member.id); member.ws = null;
-        broadcastPeers(room); prune(room); ws.close(1000, 'left'); return;
+        broadcastPeers(room); prune(room); persistRooms(); ws.close(1000, 'left'); return;
       }
+      if (packet.position !== undefined && !validPosition(packet.position)) { reject(ws, 'invalid_position', '信号位置无效。'); return; }
       if (packet.type === 'emote') {
         if (!member.emotes || !validUUID(packet.eventID) || !validEmote(packet.emote)) {
           reject(ws, 'invalid_emote', '表情格式不正确。'); return;
@@ -185,6 +197,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         member.recentIDs.push(eventID); if (member.recentIDs.length > 128) member.recentIDs.shift();
         const outgoing = { type: 'emote', eventID,
           emote: { id: packet.emote.id, name: packet.emote.name, png: packet.emote.png }, sender: { id: member.id, name: member.name } };
+        if (packet.position) outgoing.position = { nx: packet.position.nx, ny: packet.position.ny };
         for (const peer of room.members.values()) if (peer !== member && peer.ws && peer.emotes) send(peer.ws, outgoing);
         if ([...room.members.values()].some((peer) => peer !== member && peer.ws && !peer.emotes)) {
           send(ws, { type: 'error', code: 'emote_unsupported', message: '朋友需要更新至 1.5.0 才能接收表情。' });
@@ -200,6 +213,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       member.recentIDs.push(eventID);
       if (member.recentIDs.length > 128) member.recentIDs.shift();
       const outgoing = { type: 'ping', eventID, kind: packet.kind, sender: { id: member.id, name: member.name } };
+      if (packet.position) outgoing.position = { nx: packet.position.nx, ny: packet.position.ny };
       // Transient events: no storage, no sender echo, no cross-room broadcast.
       for (const peer of room.members.values()) if (peer !== member && peer.ws) send(peer.ws, outgoing);
     });
@@ -208,12 +222,16 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       const count = (byAddress.get(address) ?? 1)-1;
       if (count <= 0) byAddress.delete(address); else byAddress.set(address, count);
       if (member?.ws === ws) {
-        member.ws = null; member.disconnectedAt = Date.now(); broadcastPeers(room);
+        member.ws = null; member.disconnectedAt = Date.now(); broadcastPeers(room); persistRooms();
       }
     });
   });
+  let lastCheckpoint = Date.now();
   const sweep = setInterval(() => {
+    const before = [...rooms.values()].reduce((n,r) => n+r.members.size, 0);
     for (const room of rooms.values()) prune(room);
+    const after = [...rooms.values()].reduce((n,r) => n+r.members.size, 0);
+    if (before !== after || Date.now()-lastCheckpoint >= 60_000) { persistRooms(); lastCheckpoint = Date.now(); }
     for (const [address, window] of uploadWindows) if (Date.now()-window.start >= 60_000) uploadWindows.delete(address);
   }, Math.min(graceMs, 5000));
   const heartbeat = setInterval(() => { for (const ws of wss.clients) ws.checkAlive(); }, heartbeatMs);
@@ -229,7 +247,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
       for (const ws of wss.clients) ws.terminate();
       await new Promise((resolve) => wss.close(resolve));
       await new Promise((resolve) => server.close(resolve));
-      rooms.clear();
+      persistRooms(); rooms.clear();
     }
   };
 }
@@ -237,7 +255,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 8787);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be between 1 and 65535');
-  const relay = createRelay({ trustProxy: process.env.TRUST_PROXY === '1', galleryDirectory: process.env.GALLERY_DIRECTORY || null });
+  const relay = createRelay({ trustProxy: process.env.TRUST_PROXY === '1', galleryDirectory: process.env.GALLERY_DIRECTORY || null, sessionDirectory: process.env.SESSION_DIRECTORY || null });
   await relay.listen(port, process.env.HOST ?? '127.0.0.1');
   console.log(`LoLPing relay listening on port ${port}; protocol 1`);
   let stopping = false;

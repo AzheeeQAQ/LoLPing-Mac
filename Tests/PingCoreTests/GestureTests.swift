@@ -309,6 +309,7 @@ enum Checks {
             ("局域网：多屏相对坐标与边缘收拢", lan.testCoordinates),
             ("服务器：地址校验与房间码", relay.testEndpointAndRoom),
             ("服务器：昵称与信号编解码", relay.testNameAndMessages),
+            ("服务器：不同分辨率与负坐标屏幕的相对落点", relay.testRelativePositionsAcrossDisplays),
             ("表情：最大图片分片、乱序、去重与失效限制", emotes.testBoundedReassembly),
             ("统一轮盘：方向、混合内容、中心格和配置校验", wheel.testMixedContentAndDirectionMapping)
         ]

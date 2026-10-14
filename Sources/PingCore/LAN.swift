@@ -212,7 +212,8 @@ public struct LANRateLimiter {
 public enum LANGeometry {
     /// Matches NSMouseInRect for unflipped coordinates: minX and maxY inclusive.
     public static func screenIndex(containing point: CGPoint, in frames: [CGRect]) -> Int? {
-        frames.firstIndex { point.x >= $0.minX && point.x < $0.maxX && point.y > $0.minY && point.y <= $0.maxY }
+        frames.firstIndex { point.x >= $0.minX && point.x < $0.maxX && point.y > $0.minY && point.y <= $0.maxY } ??
+        frames.firstIndex { point.x >= $0.minX && point.x <= $0.maxX && point.y >= $0.minY && point.y <= $0.maxY }
     }
     public static func normalize(_ point: CGPoint, in frame: CGRect) -> CGPoint {
         guard frame.width > 0, frame.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }

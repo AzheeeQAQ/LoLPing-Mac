@@ -26,6 +26,8 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     @Published private(set) var memberID = ""
     var onPing: ((PingKind, String) -> Void)?
     var onEmote: ((EmotePayload, String) -> Void)?
+    var onPositionedPing: ((PingKind, String, CGPoint?) -> Void)?
+    var onPositionedEmote: ((EmotePayload, String, CGPoint?) -> Void)?
     private var supportsEmotes = false
     private var nextEmote = Date.distantPast
     var onConnected: (() -> Void)?
@@ -41,6 +43,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         }.joined(separator: "-")
     }
     private let defaults: UserDefaults?
+    private let resumeStore: RelaySessionStore
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private var pinnedSocket: PinnedRelaySocket?
@@ -58,6 +61,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
 
     init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
+        resumeStore = RelaySessionStore(defaults: defaults)
         let savedAddress = defaults?.string(forKey: "relayServer") ?? ""
         serverAddress = savedAddress.isEmpty ? (RelayServerTrust.endpoint ?? "") : savedAddress
         displayName = defaults?.string(forKey: "relayName") ?? "朋友"
@@ -97,24 +101,42 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         if isActive { status = message }
         else { terminal(message) }
     }
+    /// App quit/update only closes transport. The server reserves this identity
+    /// and the next launch resumes using the same credential and room code.
+    func suspend() {
+        wanted = false; reconnectWork?.cancel(); reconnectWork = nil
+        closeTransport(); peers = []; state = .idle; status = "房间已保存，下次启动自动恢复。"
+    }
+    @discardableResult func restoreSavedSession() -> Bool {
+        guard !wanted, let url = RelayProtocol.endpoint(serverAddress), let saved = resumeStore.load(url) else { return false }
+        closeTransport(); endpoint = url; room = saved.room; token = saved.token; memberID = saved.memberID
+        roomInput = formattedRoom; action = "resume"; wanted = true; retryCount = 0; recentIDs = []; open()
+        return true
+    }
     func disconnect() {
+        if let endpoint { resumeStore.remove(endpoint) }
+        if let configured = RelayProtocol.endpoint(serverAddress), configured != endpoint { resumeStore.remove(configured) }
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil
         closeTransport(leaving: true)
         token = nil; room = ""; memberID = ""; peers = []
         state = .idle; status = "联动已断开。"
     }
-    func sendPing(_ kind: PingKind) {
+    func sendPing(_ kind: PingKind, position: CGPoint? = nil) {
+        if let position, !RelayPosition(position).isValid { return }
         guard canSend, Date() >= nextSend else { return }
         nextSend = Date().addingTimeInterval(0.15)
         var packet = RelayMessage(type: "ping")
         packet.eventID = UUID().uuidString; packet.kind = kind
+        packet.position = position.map(RelayPosition.init)
         send(packet, generation: generation)
     }
-    func sendEmote(_ emote: EmotePayload) {
+    func sendEmote(_ emote: EmotePayload, position: CGPoint? = nil) {
+        if let position, !RelayPosition(position).isValid { return }
         guard canSend, emote.isValid, Date() >= nextEmote else { return }
         guard supportsEmotes else { status = "服务器需要更新后才能传送表情。"; return }
         nextEmote = Date().addingTimeInterval(1)
         var packet = RelayMessage(type: "emote"); packet.eventID = UUID().uuidString; packet.emote = emote
+        packet.position = position.map(RelayPosition.init)
         send(packet, generation: generation)
     }
     func reconnectAfterWake() {
@@ -204,7 +226,11 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             room = code; roomInput = formattedRoom; token = credential; memberID = id
             peers = roster; state = .connected; retryCount = 0
             handshakeTimer?.invalidate(); handshakeTimer = nil
-            updateStatus(); startHeartbeat(); onConnected?()
+            updateStatus()
+            if let endpoint, !resumeStore.save(RelaySavedSession(endpoint: endpoint.absoluteString, room: code, token: credential, memberID: id)) {
+                status += " 会话未能保存，请解锁登录钥匙串后重新连接。"
+            }
+            startHeartbeat(); onConnected?()
         case "peers":
             guard state == .connected, let roster = packet.peers else { return }
             peers = roster; updateStatus()
@@ -216,14 +242,17 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             guard !recentIDs.contains(id) else { return }
             recentIDs.append(id)
             if recentIDs.count > 128 { recentIDs.removeFirst() }
-            if receiveEnabled { onPing?(kind, sender.name) }
+            if let position = packet.position, !position.isValid { return }
+            if receiveEnabled { onPing?(kind, sender.name); onPositionedPing?(kind, sender.name, packet.position?.point) }
         case "emote":
             guard state == .connected, receiveEnabled, let rawID = packet.eventID, UUID(uuidString: rawID) != nil,
                   let emote = packet.emote, emote.isValid, let sender = packet.sender,
                   sender.id != memberID, peers.contains(sender), !recentIDs.contains(rawID.lowercased()) else { return }
             recentIDs.append(rawID.lowercased()); if recentIDs.count > 128 { recentIDs.removeFirst() }
-            onEmote?(emote, sender.name)
+            if let position = packet.position, !position.isValid { return }
+            onEmote?(emote, sender.name); onPositionedEmote?(emote, sender.name, packet.position?.point)
         case "error":
+            if ["room_missing", "resume_expired", "invalid_token"].contains(packet.code ?? ""), let endpoint { resumeStore.remove(endpoint) }
             if ["rate_limited", "emote_unsupported"].contains(packet.code ?? "") { status = packet.message ?? "发送太快，请稍等一下。" }
             else { terminal(packet.message ?? "房间连接失败。") }
         default: terminal("服务器返回了未知消息，请检查中继版本。")

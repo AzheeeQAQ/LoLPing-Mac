@@ -270,7 +270,7 @@ private struct RelayControlView: View {
                 Button("发送测试信号") { model.sendRelayTest() }.buttonStyle(.bordered).controlSize(.small)
                     .disabled(!model.relayEnabled || !relay.canSend).accessibilityLabel("发送服务器测试信号")
             }.font(.system(size: 11))
-            Text("两人填写同一服务器地址，一人创建房间，另一人输入房间码加入。朋友的信号显示在主屏幕中央；只接收无需辅助功能权限。服务器联机和局域网联机切换使用。")
+            Text("两人填写同一服务器地址，一人创建房间，另一人输入房间码加入。信号和表情按发送者的相对位置显示在鼠标所在屏幕；只接收无需辅助功能权限。服务器联机和局域网联机切换使用。")
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary).fixedSize(horizontal: false, vertical: true)
         }.padding(16).card()
     }

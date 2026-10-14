@@ -97,7 +97,7 @@ enum EmoteChecks {
             print("PASS unified wheel: 44 offline images, mixed slot/center persistence, validation, legacy migration and reset")
             defaults.set(false, forKey: "emoteEnabled") // Removed legacy switch must not block the shared wheel.
             let model = AppModel(defaults: defaults, emoteDirectory: libraryDir)
-            defer { model.shutdown() }
+            defer { model.leaveRelayRoom(); model.shutdown() }
             model.emotes.setSlot(.emote(builtin), at: 0); model.emotes.setSlot(.ping(.assist), at: 1)
             model.emotes.setSlot(.empty, at: 2); model.emotes.setSlot(.emote(id), at: 8)
             let hosting = NSHostingView(rootView: WheelControlView(model: model, library: model.emotes).padding(20).frame(width: 600).tint(Color(red: 0.83, green: 0.70, blue: 0.44)).preferredColorScheme(.dark))

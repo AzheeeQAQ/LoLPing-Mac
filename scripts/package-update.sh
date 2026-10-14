@@ -17,14 +17,14 @@ ARCHIVE="LoLPing-v$VERSION-update-macOS-universal.zip"
 [[ $# == 1 && -s "$1" ]] || { print -u2 'Usage: zsh scripts/package-update.sh updates/release-notes/<version>.txt'; exit 1; }
 [[ ! -e "downloads/$ARCHIVE" ]] || { print -u2 'Published update archives are immutable. Bump version/build to release a new update.'; exit 1; }
 [[ "$("$TOOLS/generate_keys" --account local.allentu.LoLPing -p)" == "$(/usr/libexec/PlistBuddy -c 'Print SUPublicEDKey' "$APP/Contents/Info.plist")" ]] || { print -u2 'Update signing key does not match the App.'; exit 1; }
-codesign --verify --deep --strict "$APP"
+zsh scripts/sign-app.sh --verify "$APP"
 lipo "$APP/Contents/MacOS/LoLPing" -verify_arch arm64 x86_64
 "$APP/Contents/MacOS/LoLPing" --check-assets
 mkdir -p "$STAGING" downloads updates
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$STAGING/$ARCHIVE"
 cp "$1" "$STAGING/${ARCHIVE:r}.txt"
 if [[ -f updates/appcast.xml ]]; then cp updates/appcast.xml "$STAGING/appcast.xml"; fi
-"$TOOLS/generate_appcast" "${SIGNING[@]}" --maximum-deltas 0 \
+"$TOOLS/generate_appcast" "${SIGNING[@]}" --maximum-deltas 0 --maximum-versions 0 \
     --embed-release-notes --download-url-prefix "https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v$VERSION/downloads/" \
     -o "$STAGING/appcast.xml" "$STAGING"
 "$TOOLS/sign_update" "${SIGNING[@]}" --verify "$STAGING/appcast.xml"

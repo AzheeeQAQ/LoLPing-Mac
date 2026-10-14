@@ -18,7 +18,7 @@ if [[ ! -f "$APP/Contents/Resources/AppIcon.icns" || scripts/make_icon.swift -nt
     swift scripts/make_icon.swift "$PWD/.build/AppIcon.iconset"
     iconutil -c icns .build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 fi
-codesign --force --sign - --identifier local.allentu.LoLPing "$APP"
+zsh scripts/sign-app.sh "$APP"
 codesign --verify --deep --strict "$APP"
 "$APP/Contents/MacOS/LoLPing" --check-assets
 print "Built: $APP"

@@ -6,7 +6,7 @@ APP="$PWD/dist/LoLPing.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
 STAGING="$PWD/.build/installer-$VERSION"
 mkdir -p "$STAGING/root/Applications" "$STAGING/packages"
-codesign --verify --deep --strict "$APP"
+zsh scripts/sign-app.sh --verify "$APP"
 lipo "$APP/Contents/MacOS/LoLPing" -verify_arch arm64 x86_64
 "$APP/Contents/MacOS/LoLPing" --check-assets
 ditto "$APP" "$STAGING/root/Applications/LoLPing.app"

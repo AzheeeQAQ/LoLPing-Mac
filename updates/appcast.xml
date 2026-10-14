@@ -6,6 +6,24 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.9.0</title>
+            <pubDate>Tue, 13 Oct 2026 18:43:12 -0700</pubDate>
+            <sparkle:version>12</sparkle:version>
+            <sparkle:shortVersionString>1.9.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.9.0：多屏相对位置与房间恢复
+
+• 信号和表情同步发送屏幕中的相对位置，显示在朋友鼠标所在屏幕的对应位置，不再固定在主屏幕中央。
+• 支持不同显示器尺寸、分辨率和负坐标布局，屏幕边界也选择正确的显示器。
+• 正常退出与应用内更新保存房间，启动后使用原凭证自动恢复；手动离开、关闭联机或切换 LAN 后不自动加入。
+• 服务器持久保存房间和成员凭证哈希，重启后仍可恢复；离线成员保留 30 天。
+• 保留公共图片库、统一轮盘、自定义快捷键和一键更新。
+
+使用固定本地代码签名身份，后续保持同一身份更新。首次从旧版升级仍需手动允许一次辅助功能；完成授权后自动恢复原开启状态。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.9.0/downloads/LoLPing-v1.9.0-update-macOS-universal.zip" length="5678858" type="application/octet-stream" sparkle:edSignature="DgyPfeNovk21dEoLcAybaOSp8OIYPSejsOA2S8z4OPxYvvZvY3xkyHRynK/AxHCFFnHgSexlWwHxSH9BqZwIBw=="/>
+        </item>
+        <item>
             <title>1.8.0</title>
             <pubDate>Tue, 13 Oct 2026 01:46:42 -0700</pubDate>
             <sparkle:version>11</sparkle:version>
@@ -60,6 +78,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: s0vraDsAs9JL6f0BJIwNkz/RbYPorH8lGvEbIEp03NAk6ayOSr/6ZPpwtuh0mwyV3nSCZB2KpX2cvoV5njAKCA==
-length: 4721
+edSignature: fJYoECiYzc4JN40c+viTtr225l2+tjHyN/G0/ULgXaJ0MU4C7dG/B2WgoScRxtdnjO2lOPDto2V7kMgmNSlbBA==
+length: 6266
 -->

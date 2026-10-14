@@ -7,10 +7,12 @@ services:
     environment:
       TRUST_PROXY: "1"
       GALLERY_DIRECTORY: /data/gallery
+      SESSION_DIRECTORY: /data/sessions
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
       - gallery_data:/data/gallery
+      - session_data:/data/sessions
     mem_limit: 256m
     read_only: true
     cap_drop: [ALL]
@@ -18,3 +20,4 @@ services:
 
 volumes:
   gallery_data:
+  session_data:

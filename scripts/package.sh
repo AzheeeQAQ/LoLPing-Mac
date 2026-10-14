@@ -33,7 +33,7 @@ embed_sparkle "$APP" "$PWD/.build/package-arm64"
 cp Resources/asset-sources.json "$APP/Contents/Resources/"
 swift scripts/make_icon.swift "$PWD/.build/AppIcon.iconset"
 iconutil -c icns .build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
-codesign --force --sign - --identifier local.allentu.LoLPing "$APP"
+zsh scripts/sign-app.sh "$APP"
 codesign --verify --deep --strict "$APP"
 "$APP/Contents/MacOS/LoLPing" --check-assets
 
