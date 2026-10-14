@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let updates = AppUpdateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         buildMainMenu()
         buildStatusMenu()
         let controller = NSHostingController(rootView: ControlView(model: model, updates: updates))
@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         submenu.addItem(withTitle: "退出 LoLPing", action: #selector(quit), keyEquivalent: "q").target = self
         application.submenu = submenu; menu.addItem(application)
         // Native text fields route Command shortcuts through the main menu's
-        // responder chain, including while the app runs as a menu bar accessory.
+        // responder chain in the control window.
         menu.addItem(TextEditingMenu.item())
         NSApp.mainMenu = menu
     }

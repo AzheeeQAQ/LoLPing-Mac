@@ -197,7 +197,7 @@ struct ControlView: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("关闭窗口后仍在菜单栏运行").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                Text("关闭窗口后仍在运行，可从程序坞或菜单栏重新打开").font(.system(size: 10)).foregroundStyle(Palette.secondary)
                 Spacer()
                 Menu("权限帮助") {
                     Button("辅助功能设置") { model.openAccessibility() }

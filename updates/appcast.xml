@@ -6,6 +6,20 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.9.1</title>
+            <pubDate>Tue, 13 Oct 2026 19:06:50 -0700</pubDate>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>1.9.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.9.1：程序坞图标
+
+• 在程序坞显示 LoLPing 图标，点击即可打开或恢复控制窗口。
+• 关闭控制窗口后继续运行，可从程序坞或菜单栏重新打开。
+• 保留固定签名、原快捷键、轮盘设置、公共图库和房间自动恢复。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.9.1/downloads/LoLPing-v1.9.1-update-macOS-universal.zip" length="5678908" type="application/octet-stream" sparkle:edSignature="P24WPa5FNQqmLIBe0frbhpWZjGehVpaxR2WBoTWjlEcIHKjjGTAjw0wFt5Omjr5q57K+PXSGRUSf3RS0OiszDQ=="/>
+        </item>
+        <item>
             <title>1.9.0</title>
             <pubDate>Tue, 13 Oct 2026 18:43:12 -0700</pubDate>
             <sparkle:version>12</sparkle:version>
@@ -78,6 +92,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: fJYoECiYzc4JN40c+viTtr225l2+tjHyN/G0/ULgXaJ0MU4C7dG/B2WgoScRxtdnjO2lOPDto2V7kMgmNSlbBA==
-length: 6266
+edSignature: vyVaATvDN27SUCLXVW7wm2CE+X2IdLj26jf2mxsGNHrf09zx0UXS6NtMYi31l7zZm8Xb9ROwLdAZwE/fWNT+CA==
+length: 7283
 -->
