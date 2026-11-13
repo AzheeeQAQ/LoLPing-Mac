@@ -9,6 +9,13 @@ import { RoomStore } from './rooms.mjs';
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVision', 'missing', 'enemyVision', 'generic']);
 const emoteCapability = 'emote-png-v1';
+const counterCapability = 'daily-counter-v1';
+const maxCounter = 1_000_000_000;
+// Day is the sender's UTC+8 date; the relay only checks the shape, never clocks.
+const validCounter = (c) => c && typeof c === 'object' && !Array.isArray(c) &&
+  typeof c.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.day) &&
+  Number.isSafeInteger(c.today) && c.today >= 0 && c.today <= maxCounter &&
+  Number.isSafeInteger(c.total) && c.total >= c.today && c.total <= maxCounter;
 const maxMessageBytes = 49_152;
 const validPosition = (p) => p && typeof p === 'object' && !Array.isArray(p) && Number.isFinite(p.nx) && Number.isFinite(p.ny) && p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1;
 function validEmote(value) {
@@ -173,10 +180,18 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
           room.members.set(member.id, member);
         }
         member.emotes = Array.isArray(packet.capabilities) && packet.capabilities.includes(emoteCapability);
+        member.counters = Array.isArray(packet.capabilities) && packet.capabilities.includes(counterCapability);
+        if (!member.counters) delete member.counter; // e.g. resumed from an older client: no stale snapshot
         clearTimeout(authTimer);
         if (!persistRooms()) { reject(ws, 'storage_failed', '房间保存失败，请稍后重试。'); return; }
         send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
-          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', ...(roomStore ? ['persistent-session-v1'] : [])] });
+          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', counterCapability, ...(roomStore ? ['persistent-session-v1'] : [])] });
+        // Latest counters of friends already online, so a new arrival sees them at once.
+        if (member.counters) {
+          for (const peer of room.members.values()) {
+            if (peer !== member && peer.ws && peer.counter) send(ws, { type: 'counter', counter: peer.counter, sender: { id: peer.id, name: peer.name } });
+          }
+        }
         broadcastPeers(room); return;
       }
       // A replaced transport can never send using its former member identity.
@@ -205,6 +220,15 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         return;
       }
       if (data.length > 4096) { reject(ws, 'invalid_message', '信号消息过大。'); return; }
+      if (packet.type === 'counter') {
+        if (!member.counters || !validCounter(packet.counter)) { reject(ws, 'invalid_counter', '计数格式不正确。'); return; }
+        // Kept in memory only (never in the room file) and only sent to peers that understand it:
+        // 1.9.x clients treat unknown message types as fatal.
+        member.counter = { day: packet.counter.day, today: packet.counter.today, total: packet.counter.total };
+        const outgoing = { type: 'counter', counter: member.counter, sender: { id: member.id, name: member.name } };
+        for (const peer of room.members.values()) if (peer !== member && peer.ws && peer.counters) send(peer.ws, outgoing);
+        return;
+      }
       if (packet.type !== 'ping' || !validUUID(packet.eventID) || !kinds.has(packet.kind)) {
         reject(ws, 'invalid_ping', '信号格式不正确。'); return;
       }

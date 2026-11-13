@@ -5,6 +5,7 @@ import PingCore
 /// menu bar or any window; only advertises, browses and prints.
 ///   LoLPing --lan-listen --room R [--name N] [--seconds S]
 ///   LoLPing --lan-send --room R [--name N] [--kind K] [--nx X --ny Y] [--count C] [--seconds S]
+///   Either mode also takes [--counter TODAY,TOTAL] to share a counter in its hellos.
 enum LANCommandLine {
     static func run(_ arguments: [String]) -> Never {
         setvbuf(stdout, nil, _IOLBF, 0)
@@ -22,7 +23,17 @@ enum LANCommandLine {
         print("STATUS \(sending ? "send" : "listen") room=\(room) hash=\(LANProtocol.roomHash(room)) name=\(name) id=\(session.instanceID)")
         session.onStatus = { print("STATUS \($0.summary)") }
         session.onLog = { print("LOG \($0)") }
-        session.onPeers = { print("STATUS peers connected=\($0.connected) online=\($0.online.joined(separator: ","))") }
+        session.onPeers = { peers in
+            let counters = peers.counters.map { "\($0.name)=\($0.counter.today)/\($0.counter.total)" }.joined(separator: ",")
+            print("STATUS peers connected=\(peers.connected) online=\(peers.online.joined(separator: ","))" + (counters.isEmpty ? "" : " counters=\(counters)"))
+        }
+        if let raw = value("--counter") {
+            let parts = raw.split(separator: ",").compactMap { Int($0) }
+            guard parts.count == 2, let counter = DailyCounter.received(day: DailyCounter.dayKey(for: Date()), today: parts[0], total: parts[1]) else {
+                print("ERROR --counter takes TODAY,TOTAL with 0 <= TODAY <= TOTAL"); exit(64)
+            }
+            session.setCounter(counter)
+        }
         session.onHello = { print("RECV hello from=\($0.name) seq=\($0.seq)") }
         session.onReceive = { message, playSound in
             guard case .ping(let kind, let p) = message.body else { return }

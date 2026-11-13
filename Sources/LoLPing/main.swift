@@ -55,6 +55,14 @@ if let index = CommandLine.arguments.firstIndex(of: "--relay-trust-check"), Comm
     exit(RelayTrustChecks.run(chainPath: CommandLine.arguments[index+1], foreignPath: CommandLine.arguments[index+2]))
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--counter-relay-check"), CommandLine.arguments.count > index+1 {
+    exit(CounterChecks.relay(endpoint: CommandLine.arguments[index+1]))
+}
+if CommandLine.arguments.contains("--counter-lan-check") { exit(CounterChecks.lan()) }
+if let index = CommandLine.arguments.firstIndex(of: "--counter-ui-check"), CommandLine.arguments.count > index+2 {
+    exit(CounterChecks.ui(directory: URL(fileURLWithPath: CommandLine.arguments[index+1]), endpoint: CommandLine.arguments[index+2]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--relay-check"), CommandLine.arguments.count > index+1 {
     exit(RelayChecks.run(endpoint: CommandLine.arguments[index+1]))
 }

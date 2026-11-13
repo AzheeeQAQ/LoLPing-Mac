@@ -250,3 +250,54 @@ test('invalid relative positions are rejected before forwarding', async t => {
     assert.equal((await a.next('error')).code,'invalid_position');
   }
 });
+
+const counterCaps = ['emote-png-v1', 'relative-position-v1', 'daily-counter-v1'];
+const counter = (today, total, day = '2026-11-13') => ({ type: 'counter', counter: { day, today, total } });
+
+test('daily counters cross the room with a bound sender, no echo, and reach late joiners', async (t) => {
+  const { url } = await fixture(t);
+  const a = await peer(url), aw = await a.hello('create', { capabilities: counterCaps, name: '小明' });
+  assert.ok(aw.capabilities.includes('daily-counter-v1'));
+  a.send({ ...counter(2, 40), sender: { id: 'spoofed', name: '冒充' } });
+  await delay(50);
+  // B joins after A's update and still gets A's latest counter right away.
+  const b = await peer(url), bw = await b.hello('join', { room: aw.room, capabilities: counterCaps, name: '小红' });
+  assert.deepEqual(await b.next('counter'), { type: 'counter', counter: { day: '2026-11-13', today: 2, total: 40 },
+    sender: { id: aw.memberID, name: '小明' } });
+  b.send(counter(5, 5));
+  const received = await a.next('counter');
+  assert.deepEqual(received.counter, { day: '2026-11-13', today: 5, total: 5 });
+  assert.deepEqual(received.sender, { id: bw.memberID, name: '小红' });
+  a.send(counter(3, 41)); assert.equal((await b.next('counter')).counter.today, 3);
+  await delay(50);
+  assert.equal(a.messages.filter((m) => m.type === 'counter').length, 0);
+  assert.equal(b.messages.filter((m) => m.type === 'counter').length, 0);
+});
+
+test('1.9.x clients are never sent counters, and cannot send them', async (t) => {
+  const { url } = await fixture(t);
+  const a = await peer(url), aw = await a.hello('create', { capabilities: counterCaps });
+  const old = await peer(url); await old.hello('join', { room: aw.room, capabilities: ['emote-png-v1', 'relative-position-v1'] });
+  a.send(counter(1, 1)); a.send(ping('push'));
+  assert.equal((await old.next('ping')).kind, 'push');
+  await delay(50);
+  assert.equal(old.messages.some((m) => m.type === 'counter'), false);
+  const closed = old.closed();
+  old.send(counter(1, 1));
+  assert.equal((await old.next('error')).code, 'invalid_counter');
+  await closed;
+  // The new client never hears about the old one's attempt.
+  await delay(50);
+  assert.equal(a.messages.some((m) => m.type === 'counter'), false);
+});
+
+test('malformed counters are rejected before forwarding', async (t) => {
+  const { url } = await fixture(t);
+  for (const value of [null, [], { day: '2026-11-13', today: 2, total: 1 }, { day: '2026-11-13', today: -1, total: 0 },
+    { day: '2026-11-13', today: 1.5, total: 2 }, { day: '2026-11-13', today: '1', total: 2 }, { day: '26-11-13', today: 0, total: 0 },
+    { day: '2026-11-13', today: 0, total: 1_000_000_001 }, { today: 0, total: 0 }]) {
+    const a = await peer(url); await a.hello('create', { capabilities: counterCaps });
+    a.send({ type: 'counter', counter: value });
+    assert.equal((await a.next('error')).code, 'invalid_counter');
+  }
+});

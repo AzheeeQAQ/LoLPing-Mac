@@ -279,6 +279,7 @@ enum Checks {
         let relay = RelayTests()
         let emotes = EmoteTests()
         let wheel = WheelTests()
+        let counter = CounterTests()
         let scenarios: [(String, () -> Void)] = [
             ("八向选择与中央区域", test.testEightDirectionsAndCentralDeadZone),
             ("短按不触发", test.testShortPressNeverPingsAndLateTimerDoesNothing),
@@ -311,7 +312,10 @@ enum Checks {
             ("服务器：昵称与信号编解码", relay.testNameAndMessages),
             ("服务器：不同分辨率与负坐标屏幕的相对落点", relay.testRelativePositionsAcrossDisplays),
             ("表情：最大图片分片、乱序、去重与失效限制", emotes.testBoundedReassembly),
-            ("统一轮盘：方向、混合内容、中心格和配置校验", wheel.testMixedContentAndDirectionMapping)
+            ("统一轮盘：方向、混合内容、中心格和配置校验", wheel.testMixedContentAndDirectionMapping),
+            ("计数器：UTC+8 零点重置与朋友快照", counter.testResetsAtUTC8Midnight),
+            ("计数器：服务器消息编解码与范围校验", counter.testWireFormatsAndValidation),
+            ("计数器：局域网 hello 携带计数、兼容旧版与防回退", counter.testLANHelloCarriesCounter)
         ]
         for (name, scenario) in scenarios {
             let before = failures

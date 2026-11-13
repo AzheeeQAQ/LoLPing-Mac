@@ -18,6 +18,7 @@ struct ControlView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                CounterCard(model: model, counter: model.counter, relay: model.relay)
                 header
                 statusCard
                 settingsCard
@@ -208,6 +209,97 @@ struct ControlView: View {
             Text("独立桌面工具，非 Riot 官方产品。游戏素材归 Riot Games 所有；社区音效尚未核实为官方原声。")
                 .font(.system(size: 9)).foregroundStyle(Palette.secondary.opacity(0.7)).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// 计数器：本机今日/总计可加减，并显示已连上的朋友（服务器或局域网）的计数。
+private struct CounterCard: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var counter: CounterStore
+    @ObservedObject var relay: RelayClient
+    private struct Friend: Identifiable {
+        let id: String, name: String, counter: DailyCounter, viaLAN: Bool
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 18) {
+                Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 1) {
+                    GridRow {
+                        Text("今日").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        Text("总计").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                    }
+                    GridRow(alignment: .lastTextBaseline) {
+                        Text("\(counter.state.today)").font(.system(size: 30, weight: .semibold, design: .rounded))
+                            .monospacedDigit().foregroundStyle(Palette.gold).accessibilityIdentifier("counterToday")
+                        Text("\(counter.state.total)").font(.system(size: 20, weight: .semibold, design: .rounded))
+                            .monospacedDigit().accessibilityIdentifier("counterTotal")
+                    }
+                }
+                Spacer()
+                Text("每天 0:00 重置（UTC+8）").font(.system(size: 9)).foregroundStyle(Palette.secondary)
+                HStack(spacing: 8) {
+                    step("minus", prominent: false) { counter.decrement() }
+                        .disabled(counter.state.today == 0).accessibilityLabel("计数减一")
+                    step("plus", prominent: true) { counter.increment() }
+                        .accessibilityLabel("计数加一")
+                }
+            }
+            if !friends.isEmpty || missingFriends > 0 {
+                VStack(spacing: 6) {
+                    ForEach(friends) { friend in row(friend) }
+                    if missingFriends > 0 {
+                        Text(friends.isEmpty ? "朋友更新到 1.10.0 后可互看计数" : "其余朋友更新到 1.10.0 后可互看计数")
+                            .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }.padding(.horizontal, 16).padding(.vertical, 12).card()
+    }
+    private var friends: [Friend] {
+        var list: [Friend] = []
+        if model.relayEnabled && relay.state == .connected {
+            list += relay.friendCounters.map { Friend(id: "relay-" + $0.peer.id, name: $0.peer.name, counter: $0.counter, viaLAN: false) }
+        }
+        if model.lanEnabled {
+            list += model.lanPeers.counters.map { Friend(id: "lan-" + $0.id, name: $0.name, counter: $0.counter, viaLAN: true) }
+        }
+        return list
+    }
+    /// Online friends whose app does not share a counter yet.
+    private var missingFriends: Int {
+        var count = 0
+        if model.relayEnabled && relay.state == .connected {
+            count += relay.peers.filter { $0.id != relay.memberID }.count - relay.friendCounters.count
+        }
+        if model.lanEnabled { count += model.lanPeers.online.count - model.lanPeers.counters.count }
+        return max(count, 0)
+    }
+    private func row(_ friend: Friend) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: friend.viaLAN ? "wifi" : "globe").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                .help(friend.viaLAN ? "局域网联机" : "服务器联机")
+            Text(friend.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            Spacer()
+            Text("今日").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            Text("\(friend.counter.today(at: Date()))").font(.system(size: 14, weight: .semibold, design: .rounded))
+                .monospacedDigit().foregroundStyle(Palette.gold)
+            Text("总计").font(.system(size: 10)).foregroundStyle(Palette.secondary).padding(.leading, 6)
+            Text("\(friend.counter.total)").font(.system(size: 14, weight: .semibold, design: .rounded)).monospacedDigit()
+        }
+        .padding(.horizontal, 10).frame(height: 30)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+    }
+    private func step(_ symbol: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(prominent ? Palette.background : Palette.gold)
+                .frame(width: 38, height: 38)
+                .background(prominent ? Palette.gold : Palette.gold.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.gold.opacity(prominent ? 0 : 0.25), lineWidth: 1))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 }
 

@@ -6,6 +6,21 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.10.0</title>
+            <pubDate>Fri, 13 Nov 2026 00:54:57 -0800</pubDate>
+            <sparkle:version>15</sparkle:version>
+            <sparkle:shortVersionString>1.10.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.10.0：计数器
+
+• 窗口最上方新增计数器：点 + / − 加减，显示「今日」和「总计」，自动保存。
+• 每天 0:00（北京时间 UTC+8）自动清零今日计数，总计保留；应用一直开着也会按时清零。
+• 服务器联机或局域网联机时，朋友能看到你的今日 / 总计，你也能看到朋友的，变化即时同步。
+• 与 1.9.x 兼容：旧版朋友照常互发信号和表情，只是看不到计数。双方更新到 1.10.0 后可互看计数。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.10.0/downloads/LoLPing-v1.10.0-update-macOS-universal.zip" length="5849995" type="application/octet-stream" sparkle:edSignature="haPaQOmlHa4qs2vqp3Y/XjA0ek7ZGYmHmOAQJt0n6SN8+kjmoPbBfjZ2Ldm0mPjcUKlgvAGY8q2C7dUYPpoECQ=="/>
+        </item>
+        <item>
             <title>1.9.2</title>
             <pubDate>Tue, 13 Oct 2026 23:57:40 -0700</pubDate>
             <sparkle:version>14</sparkle:version>
@@ -107,6 +122,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Wzxbqwv62PaRkVtA49krHgMKRI6Zb9kbqSQJSsk0Zc65R61FfEAE7+1UFJxcrznspuqjZQCThXq5Ja5mqA5/Bw==
-length: 8473
+edSignature: 2I7ykvLswETUgcynb0y7duXdVRGtTS5rD7D4ZfHpMPuMJDxSWTAy9NlGkJ0GjYxIEMgrDTg9Xexg0ZUxSyXIDg==
+length: 9727
 -->

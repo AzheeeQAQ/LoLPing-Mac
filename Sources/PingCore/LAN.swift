@@ -65,7 +65,10 @@ public enum LANProtocol {
         let name = cleaned.isEmpty ? fallbackName : cleaned
         switch packet.t {
         case .hello:
-            return LANMessage(sender: packet.id, name: name, seq: packet.seq, body: .hello)
+            // Counter fields are optional (1.9.x peers never send them); a bad
+            // counter is dropped without rejecting the hello itself.
+            return LANMessage(sender: packet.id, name: name, seq: packet.seq, body: .hello,
+                              counter: DailyCounter.received(day: packet.cd, today: packet.ct, total: packet.cn))
         case .ping:
             guard let raw = packet.kind, let kind = PingKind(rawValue: raw),
                   let nx = packet.nx, let ny = packet.ny, nx.isFinite, ny.isFinite else { return nil }
@@ -86,13 +89,18 @@ public struct LANPacket: Codable, Equatable {
     public var kind: String?
     public var nx: Double?
     public var ny: Double?
+    /// 计数快照（仅 hello）：日期、今日、总计。旧版解码时忽略这些字段。
+    public var cd: String?
+    public var ct: Int?
+    public var cn: Int?
     public init(v: Int = LANProtocol.version, t: Kind, id: String, name: String, room: String, seq: Int,
-                kind: String? = nil, nx: Double? = nil, ny: Double? = nil) {
+                kind: String? = nil, nx: Double? = nil, ny: Double? = nil, counter: DailyCounter? = nil) {
         self.v = v; self.t = t; self.id = id; self.name = name; self.room = room; self.seq = seq
         self.kind = kind; self.nx = nx; self.ny = ny
+        self.cd = counter?.day; self.ct = counter?.today; self.cn = counter?.total
     }
-    public static func hello(id: String, name: String, room: String, seq: Int) -> LANPacket {
-        LANPacket(t: .hello, id: id, name: name, room: room, seq: seq)
+    public static func hello(id: String, name: String, room: String, seq: Int, counter: DailyCounter? = nil) -> LANPacket {
+        LANPacket(t: .hello, id: id, name: name, room: room, seq: seq, counter: counter)
     }
     public static func ping(_ kind: PingKind, at position: CGPoint, id: String, name: String, room: String, seq: Int) -> LANPacket {
         LANPacket(t: .ping, id: id, name: name, room: room, seq: seq, kind: kind.rawValue, nx: Double(position.x), ny: Double(position.y))
@@ -106,6 +114,31 @@ public struct LANMessage: Equatable {
     public let name: String
     public let seq: Int
     public let body: Body
+    /// Only hellos carry it, and only from peers that run the counter.
+    public var counter: DailyCounter? = nil
+}
+
+/// A teammate's latest counter, for the online peers that share one.
+public struct LANRemoteCounter: Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let counter: DailyCounter
+    public init(id: String, name: String, counter: DailyCounter) { self.id = id; self.name = name; self.counter = counter }
+}
+
+/// Hellos are not sequence-checked by the flow tracker, so a late UDP hello
+/// could carry an older counter; keep only snapshots newer than the last one.
+public struct LANCounterBook {
+    private var latest: [String: (seq: Int, counter: DailyCounter)] = [:]
+    public init() {}
+    @discardableResult public mutating func accept(_ sender: String, seq: Int, counter: DailyCounter) -> Bool {
+        if let last = latest[sender], seq <= last.seq { return false }
+        latest[sender] = (seq, counter)
+        return true
+    }
+    public func counter(for sender: String) -> DailyCounter? { latest[sender]?.counter }
+    public mutating func forget(_ sender: String) { latest[sender] = nil }
+    public mutating func removeAll() { latest.removeAll() }
 }
 
 /// Inbound UDP flows, one per remote address and port. A flow belongs to the

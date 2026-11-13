@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     var onStateChange: (() -> Void)?
     let defaults: UserDefaults
     let relay: RelayClient
+    let counter: CounterStore
     private var relayObservation: AnyCancellable?
     private var wheelObservation: AnyCancellable?
     private let input = GlobalInput()
@@ -79,6 +80,7 @@ final class AppModel: ObservableObject {
         gallery = GalleryClient(defaults: defaults)
         emotes = EmoteLibrary(directory: emoteDirectory)
         relay = RelayClient(defaults: defaults)
+        counter = CounterStore(defaults: defaults)
         let savedChord = TriggerChord(rawValue: defaults.string(forKey: "triggerChord") ?? "") ?? .controlOptionCommand
         chord = savedChord
         volume = defaults.object(forKey: "volume") == nil ? 0.55 : min(max(defaults.double(forKey: "volume"), 0), 1)
@@ -91,6 +93,9 @@ final class AppModel: ObservableObject {
         lanRoomCode = LANProtocol.normalizeRoomCode(defaults.string(forKey: "lanRoomCode") ?? "")
         lanNicknameDraft = lanNickname; lanRoomDraft = lanRoomCode
         input.onAction = { [weak self] action in self?.handle(action) }
+        relay.localCounter = counter.state
+        lan.setCounter(counter.state)
+        counter.onChange = { [weak self] state in self?.relay.localCounter = state; self?.lan.setCounter(state) }
         wheelObservation = emotes.objectWillChange.sink { [weak self] _ in self?.cancelEffects() }
         lan.onEmote = { [weak self] payload, name, point in self?.showReceivedEmote(payload, sender: name, position: point) }
         input.onUnavailable = { [weak self] in

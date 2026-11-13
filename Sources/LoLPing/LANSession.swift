@@ -28,6 +28,8 @@ final class LANSession {
     struct Peers: Equatable {
         var online: [String] = []
         var connected = 0
+        /// Online peers that share a counter (1.10.0 and later).
+        var counters: [LANRemoteCounter] = []
     }
     private struct Config { let room: String; let name: String }
     private struct Outgoing {
@@ -67,6 +69,8 @@ final class LANSession {
     private var flows = LANFlowTracker<Int>()
     private var presence = LANPresence()
     private var limiter = LANRateLimiter()
+    private var counter: DailyCounter?
+    private var counterBook = LANCounterBook()
     private var peersQueued = false
     private var seq = 0
     private var ticker: DispatchSourceTimer?
@@ -109,6 +113,14 @@ final class LANSession {
                     for (_, connection) in peers { connection.send(content: data, completion: .contentProcessed { _ in }) }
                 }
             } }
+        }
+    }
+    /// Kept across restarts; every hello carries it, and a change is sent at once.
+    func setCounter(_ value: DailyCounter) {
+        queue.async {
+            guard self.counter != value else { return }
+            self.counter = value
+            if self.config != nil { self.broadcast(kind: nil, position: nil, completion: nil) }
         }
     }
     func sendHello(completion: ((Int) -> Void)? = nil) {
@@ -159,7 +171,7 @@ final class LANSession {
         incoming.values.forEach { $0.connection.cancel() }; incoming.removeAll(); flows.removeAll()
         results.removeAll()
         listenerReady = false; browserReady = false; listenerProblem = nil; browserProblem = nil
-        presence.removeAll(); emoteAssembler = LANEmoteAssembler()
+        presence.removeAll(); counterBook.removeAll(); emoteAssembler = LANEmoteAssembler()
         publishPeers()
     }
     /// Listener or browser failures restart everything after 5, 10, 20, 30 s.
@@ -343,6 +355,7 @@ final class LANSession {
         guard presence.saw(message.sender, name: message.name, at: time) else { log("drop packet: too many peers"); return }
         switch message.body {
         case .hello:
+            if let counter = message.counter { counterBook.accept(message.sender, seq: message.seq, counter: counter) }
             if onHello != nil { DispatchQueue.main.async { [weak self] in self?.onHello?(message) } }
         case .ping:
             switch limiter.admit(message.sender, at: time) {
@@ -356,7 +369,7 @@ final class LANSession {
     private func tick() {
         send(packet(kind: nil, position: nil), to: readyPeers, completion: nil)
         let time = now
-        for id in presence.prune(at: time) { limiter.forget(id) }
+        for id in presence.prune(at: time) { limiter.forget(id); counterBook.forget(id) }
         for (key, entry) in incoming where time-entry.lastActive > 30 { dropFlow(key) }
         // Backstop for address changes nothing reports (a new DHCP lease, Wi-Fi
         // to Ethernet): every 30 s dial each peer again, keeping the old
@@ -377,7 +390,7 @@ final class LANSession {
         if let kind, let position {
             return .ping(kind, at: position, id: instanceID, name: config.name, room: config.room, seq: seq)
         }
-        return .hello(id: instanceID, name: config.name, room: config.room, seq: seq)
+        return .hello(id: instanceID, name: config.name, room: config.room, seq: seq, counter: counter)
     }
     private var readyPeers: [(id: String, connection: NWConnection)] {
         outgoing.filter(\.value.ready).map { ($0.key, $0.value.connection) }
@@ -429,7 +442,11 @@ final class LANSession {
         }
     }
     private func publishPeers() {
-        let next = Peers(online: presence.online(at: now).map(\.name), connected: outgoing.values.filter(\.ready).count)
+        let online = presence.online(at: now)
+        let counters = online.compactMap { peer in
+            counterBook.counter(for: peer.id).map { LANRemoteCounter(id: peer.id, name: peer.name, counter: $0) }
+        }
+        let next = Peers(online: online.map(\.name), connected: outgoing.values.filter(\.ready).count, counters: counters)
         guard next != peers else { return }
         peers = next
         DispatchQueue.main.async { [weak self] in self?.onPeers?(next) }
