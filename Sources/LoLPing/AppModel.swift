@@ -96,6 +96,10 @@ final class AppModel: ObservableObject {
         relay.localCounter = counter.state
         lan.setCounter(counter.state)
         counter.onChange = { [weak self] state in self?.relay.localCounter = state; self?.lan.setCounter(state) }
+        relay.onRoomCounterChange = { [weak self] delta, name, value in
+            guard let self, self.relayEnabled, self.relay.receiveEnabled else { return }
+            self.overlay.showCounterToast(delta: delta, counter: value, name: name, at: NSEvent.mouseLocation)
+        }
         wheelObservation = emotes.objectWillChange.sink { [weak self] _ in self?.cancelEffects() }
         lan.onEmote = { [weak self] payload, name, point in self?.showReceivedEmote(payload, sender: name, position: point) }
         input.onUnavailable = { [weak self] in
@@ -214,6 +218,25 @@ final class AppModel: ObservableObject {
         // Preserve the user's enabled preference across an intentional app quit.
         permissionTimer?.invalidate(); input.stop(); overlay.clear(); sound.stopAll(); stopPreview()
         lan.stop(); relay.suspend(); clearTeammateEffects()
+    }
+
+    // MARK: 计数器
+
+    /// In a server room the counter is the room's shared one; otherwise our own.
+    var sharedCounterActive: Bool { relayEnabled && relay.isActive && relay.roomCounter != nil }
+    var counterToastCount: Int { overlay.counterToastCount }
+    /// + / − from the window: changes the shared or personal counter and pops
+    /// the change at the mouse. Friends see their own pop-up at their mouse.
+    func changeCounter(_ delta: Int) {
+        let point = NSEvent.mouseLocation
+        if sharedCounterActive {
+            guard let shown = relay.changeRoomCounter(delta) else { return }
+            overlay.showCounterToast(delta: delta, counter: shown, name: nil, at: point)
+        } else {
+            let applied = counter.change(delta)
+            guard applied != 0 else { return }
+            overlay.showCounterToast(delta: applied, counter: counter.state, name: nil, at: point)
+        }
     }
 
     // MARK: 服务器联机

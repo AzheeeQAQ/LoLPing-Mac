@@ -11,6 +11,8 @@ const kinds = new Set(['retreat', 'push', 'onMyWay', 'allIn', 'assist', 'needVis
 const emoteCapability = 'emote-png-v1';
 const counterCapability = 'daily-counter-v1';
 const maxCounter = 1_000_000_000;
+const sharedCounterCapability = 'shared-counter-v1';
+const maxCounterStep = 20;
 // Day is the sender's UTC+8 date; the relay only checks the shape, never clocks.
 const validCounter = (c) => c && typeof c === 'object' && !Array.isArray(c) &&
   typeof c.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.day) &&
@@ -34,17 +36,31 @@ const validName = (value) => typeof value === 'string' && value.trim().length > 
 
 export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections = 1000, heartbeatMs = 25_000,
   trustProxy = false, maxConnectionsPerAddress = 20, galleryDirectory = null, maxGalleryItems = 500,
-  galleryUploadsPerMinute = 12, sessionDirectory = null, roomRetentionMs = 30*24*60*60*1000 } = {}) {
+  galleryUploadsPerMinute = 12, sessionDirectory = null, roomRetentionMs = 30*24*60*60*1000, clock = Date.now } = {}) {
   for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress, galleryUploadsPerMinute, roomRetentionMs]) {
     if (!Number.isInteger(value) || value < 1) throw new Error('Relay limits must be positive integers');
   }
-  const roomStore = sessionDirectory ? new RoomStore(sessionDirectory, { retentionMs: roomRetentionMs, maxRooms, validRoom, validUUID, validName }) : null;
+  const roomStore = sessionDirectory ? new RoomStore(sessionDirectory, { retentionMs: roomRetentionMs, maxRooms, validRoom, validUUID, validName, validCounter }) : null;
   const rooms = roomStore?.rooms ?? new Map();
   const offlineRetention = roomStore ? roomRetentionMs : graceMs;
   let storageHealthy = true;
+  let roomsDirty = false;
   const persistRooms = () => {
-    try { roomStore?.save(rooms); storageHealthy = true; return true; }
+    try { roomStore?.save(rooms); storageHealthy = true; roomsDirty = false; return true; }
     catch { storageHealthy = false; console.error('Unable to persist LoLPing rooms.'); return false; }
+  };
+  // Shared room counter. The relay is the single writer; "today" follows the
+  // UTC+8 calendar day by the relay's own clock.
+  const utc8Day = () => new Date(clock() + 8*3600*1000).toISOString().slice(0, 10);
+  const roomCounter = (room) => {
+    const day = utc8Day();
+    if (!room.counter) room.counter = { day, today: 0, total: 0 };
+    else if (room.counter.day !== day) room.counter = { day, today: 0, total: room.counter.total };
+    return room.counter;
+  };
+  const broadcastRoomCounter = (room, extra = {}) => {
+    const packet = { type: 'room_counter', counter: { ...room.counter }, ...extra };
+    for (const peer of room.members.values()) if (peer.ws && peer.sharedCounter) send(peer.ws, packet);
   };
   const gallery = galleryDirectory ? new GalleryStore(galleryDirectory, { maxItems: maxGalleryItems, validate: validEmote }) : null;
   const uploadWindows = new Map();
@@ -151,6 +167,9 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         if (packet.type !== 'hello' || packet.version !== 1 || !validName(packet.name)) {
           reject(ws, 'invalid_hello', '协议或名字不正确，请更新客户端。'); return;
         }
+        if (packet.counterSeed !== undefined && !validCounter(packet.counterSeed)) {
+          reject(ws, 'invalid_counter', '计数格式不正确。'); return;
+        }
         if (packet.action === 'create') {
           for (const existing of rooms.values()) prune(existing);
           if (rooms.size >= maxRooms) { reject(ws, 'server_full', '服务器房间已满，请稍后重试。'); return; }
@@ -182,10 +201,27 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         member.emotes = Array.isArray(packet.capabilities) && packet.capabilities.includes(emoteCapability);
         member.counters = Array.isArray(packet.capabilities) && packet.capabilities.includes(counterCapability);
         if (!member.counters) delete member.counter; // e.g. resumed from an older client: no stale snapshot
+        member.sharedCounter = Array.isArray(packet.capabilities) && packet.capabilities.includes(sharedCounterCapability);
+        let seeded = false;
+        if (member.sharedCounter && !member.counterSeeded) {
+          // First time this member joins with a shared counter: their personal
+          // count is added to the room once (today only if it is from today).
+          const counter = roomCounter(room), seed = packet.counterSeed;
+          if (seed) {
+            if (seed.day === counter.day) counter.today = Math.min(maxCounter, counter.today + seed.today);
+            counter.total = Math.max(counter.today, Math.min(maxCounter, counter.total + seed.total));
+          }
+          member.counterSeeded = true; seeded = true;
+        }
         clearTimeout(authTimer);
         if (!persistRooms()) { reject(ws, 'storage_failed', '房间保存失败，请稍后重试。'); return; }
         send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
-          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', counterCapability, ...(roomStore ? ['persistent-session-v1'] : [])] });
+          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', counterCapability, sharedCounterCapability, ...(roomStore ? ['persistent-session-v1'] : [])],
+          ...(member.sharedCounter ? { roomCounter: { ...roomCounter(room) } } : {}) });
+        if (seeded) {
+          // Friends already online pick up the merged value; no pop-up for a seed.
+          for (const peer of room.members.values()) if (peer !== member && peer.ws && peer.sharedCounter) send(peer.ws, { type: 'room_counter', counter: { ...room.counter } });
+        }
         // Latest counters of friends already online, so a new arrival sees them at once.
         if (member.counters) {
           for (const peer of room.members.values()) {
@@ -220,6 +256,20 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         return;
       }
       if (data.length > 4096) { reject(ws, 'invalid_message', '信号消息过大。'); return; }
+      if (packet.type === 'counter_op') {
+        if (!member.sharedCounter || !validUUID(packet.eventID) || !Number.isSafeInteger(packet.delta) || packet.delta === 0 ||
+            Math.abs(packet.delta) > maxCounterStep) { reject(ws, 'invalid_counter', '计数格式不正确。'); return; }
+        const eventID = packet.eventID.toLowerCase();
+        if (member.recentIDs.includes(eventID)) return;
+        member.recentIDs.push(eventID); if (member.recentIDs.length > 128) member.recentIDs.shift();
+        const counter = roomCounter(room);
+        // Never below zero today; the total moves by exactly what was applied.
+        const applied = packet.delta > 0 ? Math.min(packet.delta, maxCounter - counter.total) : -Math.min(-packet.delta, counter.today);
+        counter.today += applied; counter.total += applied; roomsDirty = true;
+        // Everyone that understands it, the sender included (as the acknowledgement).
+        broadcastRoomCounter(room, { delta: applied, eventID, sender: { id: member.id, name: member.name } });
+        return;
+      }
       if (packet.type === 'counter') {
         if (!member.counters || !validCounter(packet.counter)) { reject(ws, 'invalid_counter', '计数格式不正确。'); return; }
         // Kept in memory only (never in the room file) and only sent to peers that understand it:
@@ -255,7 +305,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
     const before = [...rooms.values()].reduce((n,r) => n+r.members.size, 0);
     for (const room of rooms.values()) prune(room);
     const after = [...rooms.values()].reduce((n,r) => n+r.members.size, 0);
-    if (before !== after || Date.now()-lastCheckpoint >= 60_000) { persistRooms(); lastCheckpoint = Date.now(); }
+    if (before !== after || roomsDirty || Date.now()-lastCheckpoint >= 60_000) { persistRooms(); lastCheckpoint = Date.now(); }
     for (const [address, window] of uploadWindows) if (Date.now()-window.start >= 60_000) uploadWindows.delete(address);
   }, Math.min(graceMs, 5000));
   const heartbeat = setInterval(() => { for (const ws of wss.clients) ws.checkAlive(); }, heartbeatMs);

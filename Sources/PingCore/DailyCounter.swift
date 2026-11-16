@@ -61,15 +61,16 @@ public struct DailyCounter: Codable, Equatable {
         day = key; today = 0
         return true
     }
-    public mutating func increment(at date: Date) {
+    /// Same rule as the relay: never below 0 today, never above the cap; the
+    /// total moves by exactly what was applied. Returns the applied change.
+    @discardableResult
+    public mutating func apply(_ delta: Int, at date: Date) -> Int {
         rollover(at: date)
-        guard total < Self.maxValue else { return }
-        today += 1; total += 1
+        let applied = delta > 0 ? min(delta, Self.maxValue-total) : -min(-delta, today)
+        today += applied; total += applied
+        return applied
     }
+    public mutating func increment(at date: Date) { apply(1, at: date) }
     /// 撤销今天的一次计数；今日为 0 时不做任何事。
-    public mutating func decrement(at date: Date) {
-        rollover(at: date)
-        guard today > 0 else { return }
-        today -= 1; total -= 1
-    }
+    public mutating func decrement(at date: Date) { apply(-1, at: date) }
 }

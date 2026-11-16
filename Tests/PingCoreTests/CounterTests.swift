@@ -48,6 +48,30 @@ final class CounterTests {
         XCTAssertEqual((try? JSONDecoder().decode(RelayMessage.self, from: bad)) == nil, true)
         XCTAssertEqual(try? JSONDecoder().decode(RelayMessage.self, from: Data(#"{"type":"ping"}"#.utf8)).counter, nil)
     }
+    func testSharedCounterRules() {
+        // Same clamping as the relay: never below 0 today, total moves by what was applied.
+        var counter = DailyCounter(day: "2026-11-12", today: 2, total: 10)
+        XCTAssertEqual(counter.apply(-5, at: lastSecond), -2)
+        XCTAssertEqual([counter.today, counter.total], [0, 8])
+        XCTAssertEqual(counter.apply(-1, at: lastSecond), 0)
+        XCTAssertEqual(counter.apply(3, at: lastSecond), 3)
+        XCTAssertEqual([counter.today, counter.total], [3, 11])
+        XCTAssertEqual(counter.apply(1, at: midnight), 1)
+        XCTAssertEqual([counter.today, counter.total], [1, 12])
+        var full = DailyCounter(day: "2026-11-13", today: 0, total: DailyCounter.maxValue-1)
+        XCTAssertEqual(full.apply(5, at: lastSecond), 1)
+        // Wire format of the shared counter messages.
+        var hello = RelayMessage(type: "hello"); hello.counterSeed = DailyCounter(day: "2026-11-13", today: 1, total: 6)
+        let fields = (try? JSONSerialization.jsonObject(with: try! JSONEncoder().encode(hello))) as? [String: Any] ?? [:]
+        XCTAssertEqual(fields["counterSeed"] as? [String: AnyHashable], ["day": "2026-11-13", "today": 1, "total": 6])
+        let update = Data(#"{"type":"room_counter","counter":{"day":"2026-11-13","today":4,"total":9},"delta":-1,"eventID":"e","sender":{"id":"a","name":"小红"}}"#.utf8)
+        let decoded = try? JSONDecoder().decode(RelayMessage.self, from: update)
+        XCTAssertEqual(decoded?.counter, DailyCounter(day: "2026-11-13", today: 4, total: 9))
+        XCTAssertEqual(decoded?.delta, -1)
+        XCTAssertEqual(decoded?.sender?.name, "小红")
+        let welcome = Data(#"{"type":"welcome","roomCounter":{"day":"2026-11-13","today":0,"total":3}}"#.utf8)
+        XCTAssertEqual((try? JSONDecoder().decode(RelayMessage.self, from: welcome))?.roomCounter?.total, 3)
+    }
     func testLANHelloCarriesCounter() {
         let room = LANProtocol.roomHash("9137")
         let counter = DailyCounter(day: "2026-11-13", today: 3, total: 30)

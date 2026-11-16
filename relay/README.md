@@ -166,3 +166,16 @@ node test/counter-client-check.mjs ../.build/debug/LoLPing
 # 局域网：同机两个 Bonjour 会话互看与即时更新
 ../.build/debug/LoLPing --counter-lan-check
 ```
+
+## 房间共享计数（1.11.0）
+
+客户端在 `hello.capabilities` 中声明 `shared-counter-v1`，服务端在 `welcome.capabilities` 回应并附带 `roomCounter`（`{day,today,total}`）。每个房间一个计数，由中继统一结算，随房间写入 `rooms.json`（中继重启、更新后保留；1.10.0 中继读取同一文件时忽略这些字段，可直接回滚）。“今日”按中继自身时钟的 UTC+8 日期，跨日后今日归零、总计保留。
+
+- 起始值：成员第一次以支持共享计数的客户端进入房间时，`hello.counterSeed`（其个人计数）加入房间计数，今日部分仅在日期为当天时计入；每位成员只加一次（`counterSeeded` 记录在房间文件中），重连、恢复不会重复加。已在线的朋友收到不带 `delta` 的 `room_counter` 更新，不弹提示。
+- 加减：`{"type":"counter_op","eventID":"<uuid>","delta":1}`，`delta` 为 ±1…±20 的非零整数（客户端每 0.25 秒合并一次连点）。中继按事件 ID 去重，今日不低于 0、总计按实际变化量增减，然后向房间内所有支持此能力的成员（包括发送者，作为确认）广播 `{"type":"room_counter","counter":{…},"delta":<实际变化>,"eventID":…,"sender":{"id","name"}}`。
+- 1.9.x、1.10.0 不声明此能力，收不到 `room_counter`，发送 `counter_op` 会以 `invalid_counter` 断开；1.10.0 之间仍按 `daily-counter-v1` 互看各自计数。
+
+```sh
+node --test test/rooms.test.mjs   # 起始值合并、并发、去重、不低于 0、跨日、重启保留
+node test/counter-client-check.mjs ../.build/debug/LoLPing   # 生产 Swift 客户端：合并、互弹、同时连点、重连
+```

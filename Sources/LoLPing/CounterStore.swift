@@ -31,8 +31,13 @@ final class CounterStore: ObservableObject {
         observations.forEach { $0.0.removeObserver($0.1) }
     }
 
-    func increment() { var next = state; next.increment(at: Date()); state = next; scheduleReset() }
-    func decrement() { var next = state; next.decrement(at: Date()); state = next; scheduleReset() }
+    /// Returns what was actually applied (0 for minus at 0 today).
+    @discardableResult func change(_ delta: Int) -> Int {
+        var next = state; let applied = next.apply(delta, at: Date()); state = next; scheduleReset()
+        return applied
+    }
+    func increment() { change(1) }
+    func decrement() { change(-1) }
 
     private func refresh() {
         var next = state; next.rollover(at: Date()); state = next

@@ -367,8 +367,24 @@ final class OverlayController {
         effects.append((id, panel, cleanup, teammate))
         DispatchQueue.main.asyncAfter(deadline: .now()+3.05, execute: cleanup)
     }
+    /// Counter pop-ups are kept like teammate effects: a click in our own window
+    /// must not cancel the pop-up it just created.
+    func showCounterToast(delta: Int, counter: DailyCounter, name: String?, at point: CGPoint) {
+        if effects.count >= 16 { let oldest = effects.removeFirst(); oldest.cleanup.cancel(); closeEffect(oldest.panel) }
+        let view = CounterToastView(delta: delta, counter: counter, name: name)
+        let panel = OverlayPanel(frame: OverlayController.counterToastFrame(size: view.frame.size, at: point))
+        panel.contentView = view; panel.orderFrontRegardless(); view.start()
+        let id = UUID()
+        let cleanup = DispatchWorkItem { [weak self, weak panel] in
+            if let panel { self?.closeEffect(panel) }; self?.effects.removeAll { $0.id == id }
+        }
+        effects.append((id, panel, cleanup, true))
+        DispatchQueue.main.asyncAfter(deadline: .now()+CounterToastView.duration+0.05, execute: cleanup)
+    }
+    var counterToastCount: Int { effects.filter { $0.panel.contentView is CounterToastView }.count }
     private func closeEffect(_ panel: OverlayPanel) {
-        (panel.contentView as? PingEffectView)?.stop(); (panel.contentView as? EmoteEffectView)?.stop(); panel.close()
+        (panel.contentView as? PingEffectView)?.stop(); (panel.contentView as? EmoteEffectView)?.stop()
+        (panel.contentView as? CounterToastView)?.stop(); panel.close()
     }
     /// Local wheel and local pings only.
     func clear() {

@@ -6,6 +6,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>LoLPing</title>
         <item>
+            <title>1.11.0</title>
+            <pubDate>Sun, 15 Nov 2026 19:24:16 -0800</pubDate>
+            <sparkle:version>16</sparkle:version>
+            <sparkle:shortVersionString>1.11.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="plain-text"><![CDATA[LoLPing 1.11.0：双方共享计数器
+
+• 服务器房间里的计数器改为双方共享的同一个数：任何一方点 + / −，双方数字同时变化，两人同时点也不会算错。
+• 每次点击都会在鼠标位置弹出 +1 / −1 和当前计数；朋友点击时，你的鼠标位置会弹出“朋友名字 +1”。
+• 第一次用 1.11.0 进入房间时，双方原有的计数会加在一起作为房间计数，只加一次。
+• 每天 0:00（北京时间）清零今日，总计保留。不在房间时仍是自己的计数；局域网保持各自计数、互相可见。
+• 双方都更新到 1.11.0 才能共享计数；旧版照常互发信号和表情。
+]]></description>
+            <enclosure url="https://raw.githubusercontent.com/AzheeeQAQ/LoLPing-Mac/refs/tags/v1.11.0/downloads/LoLPing-v1.11.0-update-macOS-universal.zip" length="5888335" type="application/octet-stream" sparkle:edSignature="rn2xrfHX9MCRt/eEc8Whe7oUOB//K3hmLsLHuITtotyNefLNgczwJ56+zfG6bOsYhPczw1kCpKSv3wYkPUVPDw=="/>
+        </item>
+        <item>
             <title>1.10.0</title>
             <pubDate>Fri, 13 Nov 2026 00:54:57 -0800</pubDate>
             <sparkle:version>15</sparkle:version>
@@ -122,6 +138,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 2I7ykvLswETUgcynb0y7duXdVRGtTS5rD7D4ZfHpMPuMJDxSWTAy9NlGkJ0GjYxIEMgrDTg9Xexg0ZUxSyXIDg==
-length: 9727
+edSignature: eCmQModQ+vVAy2QtZS99oqmEtib+F80WJbp7gj8WLWc7I6vi60AqVeIC2QdJ354UShf4DVH8mvKWEiYO4B8UBg==
+length: 11147
 -->

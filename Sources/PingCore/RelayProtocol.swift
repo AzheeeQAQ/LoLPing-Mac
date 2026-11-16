@@ -15,6 +15,9 @@ public enum RelayProtocol {
     public static let maxMessageBytes = 49_152
     /// 当日/总计计数同步；只与声明此能力的服务端和朋友互发。
     public static let counterCapability = "daily-counter-v1"
+    /// 房间共享计数（1.11.0）：服务端统一加减，取代按人同步。
+    public static let sharedCounterCapability = "shared-counter-v1"
+    public static let maxCounterStep = 20
 
     public static func displayName(_ input: String) -> String {
         let normalized = input.precomposedStringWithCanonicalMapping
@@ -60,6 +63,9 @@ public struct RelayMessage: Codable {
     public var emote: EmotePayload?
     public var position: RelayPosition?
     public var counter: DailyCounter?
+    public var roomCounter: DailyCounter?
+    public var counterSeed: DailyCounter?
+    public var delta: Int?
     public var sender: RelayPeer?
     public var code: String?
     public var message: String?

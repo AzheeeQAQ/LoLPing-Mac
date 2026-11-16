@@ -315,7 +315,8 @@ enum Checks {
             ("统一轮盘：方向、混合内容、中心格和配置校验", wheel.testMixedContentAndDirectionMapping),
             ("计数器：UTC+8 零点重置与朋友快照", counter.testResetsAtUTC8Midnight),
             ("计数器：服务器消息编解码与范围校验", counter.testWireFormatsAndValidation),
-            ("计数器：局域网 hello 携带计数、兼容旧版与防回退", counter.testLANHelloCarriesCounter)
+            ("计数器：局域网 hello 携带计数、兼容旧版与防回退", counter.testLANHelloCarriesCounter),
+            ("计数器：共享计数加减规则与消息格式", counter.testSharedCounterRules)
         ]
         for (name, scenario) in scenarios {
             let before = failures

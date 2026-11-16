@@ -29,17 +29,22 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     var onPositionedPing: ((PingKind, String, CGPoint) -> Void)?
     var onPositionedEmote: ((EmotePayload, String, CGPoint) -> Void)?
     @Published private(set) var positionWarning: String?
-    /// Friends' counters by member id; only filled when the server relays counters.
-    @Published private(set) var peerCounters: [String: DailyCounter] = [:]
-    /// Our counter; shared with the room whenever it changes.
-    var localCounter: DailyCounter? {
-        didSet { if localCounter != oldValue { queueCounterSend() } }
+    /// The room's shared counter as last confirmed by the relay. Kept through a
+    /// reconnect so the window does not flicker; cleared when leaving the room.
+    @Published private(set) var roomCounter: DailyCounter?
+    /// Our clicks the relay has not confirmed yet, so the number moves at once.
+    @Published private(set) var pendingCounterDelta = 0
+    /// Our personal counter, offered to each room once as our starting share.
+    var localCounter: DailyCounter?
+    /// A friend changed the shared counter: (applied change, their name, new value).
+    var onRoomCounterChange: ((Int, String, DailyCounter) -> Void)?
+    var roomCounterDisplay: DailyCounter? {
+        roomCounter.map { var counter = $0; counter.apply(pendingCounterDelta, at: Date()); return counter }
     }
-    var friendCounters: [(peer: RelayPeer, counter: DailyCounter)] {
-        peers.filter { $0.id != memberID }.compactMap { peer in peerCounters[peer.id].map { (peer, $0) } }
-    }
-    private var supportsCounter = false
-    private var sentCounter: DailyCounter?
+    var sharedCounterReady: Bool { state == .connected && supportsSharedCounter && roomCounter != nil }
+    private var supportsSharedCounter = false
+    private var unsentDelta = 0
+    private var inFlight: [String: Int] = [:]
     private var counterWork: DispatchWorkItem?
     private var nextCounterSend = Date.distantPast
     private var supportsEmotes = false
@@ -132,7 +137,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         if let configured = RelayProtocol.endpoint(serverAddress), configured != endpoint { resumeStore.remove(configured) }
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil
         closeTransport(leaving: true)
-        token = nil; room = ""; memberID = ""; peers = []
+        token = nil; room = ""; memberID = ""; peers = []; roomCounter = nil
         state = .idle; status = "联动已断开。"
     }
     func sendPing(_ kind: PingKind, position: CGPoint) {
@@ -198,7 +203,8 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     private func sendHello(generation current: Int) {
         guard wanted, generation == current else { return }
         var hello = RelayMessage(type: "hello")
-        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1", "relative-position-v1", RelayProtocol.counterCapability]
+        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1", "relative-position-v1", RelayProtocol.sharedCounterCapability]
+        hello.counterSeed = localCounter
         hello.action = token == nil ? action : "resume"
         hello.room = room.isEmpty ? nil : room; hello.token = token
         send(hello, generation: current)
@@ -237,7 +243,8 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
                 terminal("中继协议不兼容，请更新客户端和服务端。"); return
             }
             supportsEmotes = packet.capabilities?.contains("emote-png-v1") == true
-            supportsCounter = packet.capabilities?.contains(RelayProtocol.counterCapability) == true
+            supportsSharedCounter = packet.capabilities?.contains(RelayProtocol.sharedCounterCapability) == true
+            roomCounter = supportsSharedCounter ? packet.roomCounter : nil
             room = code; roomInput = formattedRoom; token = credential; memberID = id
             peers = roster; state = .connected; retryCount = 0
             handshakeTimer?.invalidate(); handshakeTimer = nil
@@ -245,7 +252,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             if let endpoint, !resumeStore.save(RelaySavedSession(endpoint: endpoint.absoluteString, room: code, token: credential, memberID: id)) {
                 status += " 会话未能保存，请解锁登录钥匙串后重新连接。"
             }
-            startHeartbeat(); queueCounterSend(); onConnected?()
+            startHeartbeat(); onConnected?()
         case "peers":
             guard state == .connected, let roster = packet.peers else { return }
             peers = roster; updateStatus()
@@ -273,33 +280,51 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             }
             positionWarning = nil
             onEmote?(emote, sender.name); onPositionedEmote?(emote, sender.name, position.point)
-        case "counter":
-            guard state == .connected, supportsCounter, let counter = packet.counter, let sender = packet.sender,
-                  sender.id != memberID, peers.contains(sender) else { return }
-            peerCounters[sender.id] = counter
+        case "room_counter":
+            guard state == .connected, supportsSharedCounter, let counter = packet.counter else { return }
+            roomCounter = counter
+            if let id = packet.eventID?.lowercased(), inFlight.removeValue(forKey: id) != nil { updatePending() }
+            if let delta = packet.delta, delta != 0, let sender = packet.sender, sender.id != memberID, peers.contains(sender) {
+                onRoomCounterChange?(delta, sender.name, counter)
+            }
         case "error":
             if ["room_missing", "resume_expired", "invalid_token"].contains(packet.code ?? ""), let endpoint { resumeStore.remove(endpoint) }
+            // A rate-limited click was dropped; show the relay's number again.
+            if packet.code == "rate_limited" { inFlight.removeAll(); updatePending() }
             if ["rate_limited", "emote_unsupported"].contains(packet.code ?? "") { status = packet.message ?? "发送太快，请稍等一下。" }
             else { terminal(packet.message ?? "房间连接失败。") }
         default: terminal("服务器返回了未知消息，请检查中继版本。")
         }
     }
-    /// At most four counter updates a second; the latest value always goes out
-    /// last, so rapid clicks never leave friends on a stale number.
-    private func queueCounterSend() {
-        guard state == .connected, supportsCounter, localCounter != nil, counterWork == nil else { return }
+    /// Adds a click to the shared counter. Returns the value to show right away,
+    /// or nil when nothing changes (not connected, or minus at 0 today).
+    @discardableResult func changeRoomCounter(_ delta: Int) -> DailyCounter? {
+        guard sharedCounterReady, var next = roomCounterDisplay, next.apply(delta, at: Date()) != 0,
+              abs(unsentDelta+delta) <= RelayProtocol.maxCounterStep else { return nil }
+        unsentDelta += delta; updatePending(); queueCounterOp()
+        return next
+    }
+    /// The first click goes out at once; clicks within the next 0.25 s are sent
+    /// together, keeping well inside the relay's message rate limit.
+    private func queueCounterOp() {
+        guard counterWork == nil else { return }
         let current = generation
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.counterWork = nil
-            guard self.generation == current, self.state == .connected, self.supportsCounter,
-                  let counter = self.localCounter, counter != self.sentCounter else { return }
-            var packet = RelayMessage(type: "counter"); packet.counter = counter
+            guard self.generation == current, self.sharedCounterReady, self.unsentDelta != 0 else { return }
+            let id = UUID().uuidString.lowercased()
+            var packet = RelayMessage(type: "counter_op"); packet.eventID = id; packet.delta = self.unsentDelta
+            self.inFlight[id] = self.unsentDelta; self.unsentDelta = 0
             self.send(packet, generation: current)
-            self.sentCounter = counter; self.nextCounterSend = Date().addingTimeInterval(0.25)
+            self.nextCounterSend = Date().addingTimeInterval(0.25)
         }
         counterWork = work
         DispatchQueue.main.asyncAfter(deadline: .now()+max(0, nextCounterSend.timeIntervalSinceNow), execute: work)
+    }
+    private func updatePending() {
+        let next = unsentDelta + inFlight.values.reduce(0, +)
+        if next != pendingCounterDelta { pendingCounterDelta = next }
     }
     private func updateStatus() {
         let friends = peers.filter { $0.id != memberID }.map(\.name)
@@ -344,12 +369,14 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     }
     private func terminal(_ message: String) {
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil
-        closeTransport(); token = nil; peers = []; room = ""; memberID = ""
+        closeTransport(); token = nil; peers = []; room = ""; memberID = ""; roomCounter = nil
         state = .failed; status = message; onFailure?(message)
     }
     private func closeTransport(leaving: Bool = false) {
         generation += 1; supportsEmotes = false; positionWarning = nil
-        supportsCounter = false; sentCounter = nil; peerCounters = [:]
+        // Unconfirmed clicks are dropped with the transport; the next welcome
+        // brings the relay's number, which is the truth.
+        supportsSharedCounter = false; unsentDelta = 0; inFlight = [:]; updatePending()
         counterWork?.cancel(); counterWork = nil
         handshakeTimer?.invalidate(); handshakeTimer = nil
         heartbeatTimer?.invalidate(); heartbeatTimer = nil

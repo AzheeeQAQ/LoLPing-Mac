@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { createRelay } from '../server.mjs';
 
-// Runs the production Swift client's counter sync against a temporary local relay.
+// Runs the production Swift client's shared room counter against a temporary local relay.
 const relay = createRelay();
 try {
   const { port } = await relay.listen(0);

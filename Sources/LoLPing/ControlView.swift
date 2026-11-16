@@ -212,15 +212,18 @@ struct ControlView: View {
     }
 }
 
-/// 计数器：本机今日/总计可加减，并显示已连上的朋友（服务器或局域网）的计数。
+/// 计数器：服务器房间里是双方共享的房间计数；否则是本机计数，局域网朋友的计数显示在下方。
 private struct CounterCard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var counter: CounterStore
     @ObservedObject var relay: RelayClient
     private struct Friend: Identifiable {
-        let id: String, name: String, counter: DailyCounter, viaLAN: Bool
+        let id: String, name: String, counter: DailyCounter
     }
+    private var shared: Bool { model.sharedCounterActive }
+    private var shown: DailyCounter { shared ? (relay.roomCounterDisplay ?? counter.state) : counter.state }
     var body: some View {
+        let today = shown.today(at: Date())
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 18) {
                 Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 1) {
@@ -229,22 +232,31 @@ private struct CounterCard: View {
                         Text("总计").font(.system(size: 10)).foregroundStyle(Palette.secondary)
                     }
                     GridRow(alignment: .lastTextBaseline) {
-                        Text("\(counter.state.today)").font(.system(size: 30, weight: .semibold, design: .rounded))
+                        Text("\(today)").font(.system(size: 30, weight: .semibold, design: .rounded))
                             .monospacedDigit().foregroundStyle(Palette.gold).accessibilityIdentifier("counterToday")
-                        Text("\(counter.state.total)").font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Text("\(shown.total)").font(.system(size: 20, weight: .semibold, design: .rounded))
                             .monospacedDigit().accessibilityIdentifier("counterTotal")
                     }
                 }
                 Spacer()
-                Text("每天 0:00 重置（UTC+8）").font(.system(size: 9)).foregroundStyle(Palette.secondary)
+                VStack(alignment: .trailing, spacing: 4) {
+                    if shared {
+                        Label(sharedTitle, systemImage: "person.2.fill").font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Palette.gold).lineLimit(1).accessibilityIdentifier("counterShared")
+                    }
+                    Text("每天 0:00 重置（UTC+8）").font(.system(size: 9)).foregroundStyle(Palette.secondary)
+                }
                 HStack(spacing: 8) {
-                    step("minus", prominent: false) { counter.decrement() }
-                        .disabled(counter.state.today == 0).accessibilityLabel("计数减一")
-                    step("plus", prominent: true) { counter.increment() }
+                    step("minus", prominent: false, enabled: today > 0 && (!shared || relay.sharedCounterReady)) { model.changeCounter(-1) }
+                        .accessibilityLabel("计数减一")
+                    step("plus", prominent: true, enabled: !shared || relay.sharedCounterReady) { model.changeCounter(1) }
                         .accessibilityLabel("计数加一")
                 }
             }
-            if !friends.isEmpty || missingFriends > 0 {
+            if shared && !relay.sharedCounterReady {
+                Text("正在重新连接服务器，恢复后可继续加减").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            }
+            if !shared && (!friends.isEmpty || missingFriends > 0) {
                 VStack(spacing: 6) {
                     ForEach(friends) { friend in row(friend) }
                     if missingFriends > 0 {
@@ -256,29 +268,22 @@ private struct CounterCard: View {
             }
         }.padding(.horizontal, 16).padding(.vertical, 12).card()
     }
-    private var friends: [Friend] {
-        var list: [Friend] = []
-        if model.relayEnabled && relay.state == .connected {
-            list += relay.friendCounters.map { Friend(id: "relay-" + $0.peer.id, name: $0.peer.name, counter: $0.counter, viaLAN: false) }
-        }
-        if model.lanEnabled {
-            list += model.lanPeers.counters.map { Friend(id: "lan-" + $0.id, name: $0.name, counter: $0.counter, viaLAN: true) }
-        }
-        return list
+    private var sharedTitle: String {
+        let names = relay.peers.filter { $0.id != relay.memberID }.map(\.name)
+        return names.isEmpty ? "房间共享 · 等朋友加入" : "与 \(names.joined(separator: "、")) 共享"
     }
-    /// Online friends whose app does not share a counter yet.
+    /// LAN only: there each player keeps their own counter and sees the others'.
+    private var friends: [Friend] {
+        guard model.lanEnabled else { return [] }
+        return model.lanPeers.counters.map { Friend(id: $0.id, name: $0.name, counter: $0.counter) }
+    }
     private var missingFriends: Int {
-        var count = 0
-        if model.relayEnabled && relay.state == .connected {
-            count += relay.peers.filter { $0.id != relay.memberID }.count - relay.friendCounters.count
-        }
-        if model.lanEnabled { count += model.lanPeers.online.count - model.lanPeers.counters.count }
-        return max(count, 0)
+        guard model.lanEnabled else { return 0 }
+        return max(model.lanPeers.online.count - model.lanPeers.counters.count, 0)
     }
     private func row(_ friend: Friend) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: friend.viaLAN ? "wifi" : "globe").font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                .help(friend.viaLAN ? "局域网联机" : "服务器联机")
+            Image(systemName: "wifi").font(.system(size: 10)).foregroundStyle(Palette.secondary).help("局域网联机")
             Text(friend.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
             Spacer()
             Text("今日").font(.system(size: 10)).foregroundStyle(Palette.secondary)
@@ -291,7 +296,7 @@ private struct CounterCard: View {
         .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
     }
-    private func step(_ symbol: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+    private func step(_ symbol: String, prominent: Bool, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(prominent ? Palette.background : Palette.gold)
@@ -299,7 +304,7 @@ private struct CounterCard: View {
                 .background(prominent ? Palette.gold : Palette.gold.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.gold.opacity(prominent ? 0 : 0.25), lineWidth: 1))
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.35)
     }
 }
 
