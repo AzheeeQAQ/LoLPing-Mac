@@ -72,6 +72,44 @@ final class CounterTests {
         let welcome = Data(#"{"type":"welcome","roomCounter":{"day":"2026-11-13","today":0,"total":3}}"#.utf8)
         XCTAssertEqual((try? JSONDecoder().decode(RelayMessage.self, from: welcome))?.roomCounter?.total, 3)
     }
+    func testDailyHistory() {
+        // Day arithmetic stays on the UTC+8 calendar across month and year ends.
+        let newYear = iso.date(from: "2026-12-31T16:30:00Z")!  // UTC+8 2027-01-01 00:30
+        XCTAssertEqual(DailyCounter.dayKey(daysBefore: 0, from: newYear), "2027-01-01")
+        XCTAssertEqual(DailyCounter.dayKey(daysBefore: 1, from: newYear), "2026-12-31")
+        XCTAssertEqual(DailyCounter.dayKey(daysBefore: 89, from: newYear), "2026-10-04")
+        XCTAssertEqual(DailyCounter.dayKey(daysBefore: 1, from: midnight), "2026-11-12")
+        // Every change writes that day's count; a day back at 0 is not kept.
+        var history = CounterHistory()
+        var counter = DailyCounter(day: "", today: 0, total: 0)
+        history.record(counter)
+        XCTAssertEqual(history.days, [:])
+        counter.apply(3, at: lastSecond); history.record(counter)
+        counter.apply(2, at: midnight); history.record(counter)
+        XCTAssertEqual(history.days, ["2026-11-12": 3, "2026-11-13": 2])
+        counter.apply(-2, at: midnight); history.record(counter)
+        XCTAssertEqual(history.days, ["2026-11-12": 3])
+        // Series: oldest first, gaps are 0, the live counter decides its own day.
+        history = CounterHistory(["2026-11-10": 4, "2026-11-12": 3])
+        let live = DailyCounter(day: "2026-11-13", today: 6, total: 20)
+        XCTAssertEqual(history.series(days: 4, endingAt: midnight, live: live).map(\.count), [4, 0, 3, 6])
+        XCTAssertEqual(history.series(days: 4, endingAt: midnight, live: live).map(\.day), ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"])
+        XCTAssertEqual(history.series(days: 7, endingAt: midnight).count, 7)
+        // A live counter still on yesterday (nobody clicked yet today) shows 0 today.
+        let stale = DailyCounter(day: "2026-11-12", today: 5, total: 20)
+        XCTAssertEqual(history.series(days: 2, endingAt: midnight, live: stale).map(\.count), [5, 0])
+        XCTAssertEqual(history.untracked(total: 20, live: live), 7)
+        XCTAssertEqual(history.untracked(total: 3, live: live), 0)
+        // Only the last 90 days are kept; bad keys and values from the network are dropped.
+        var long = CounterHistory(["2026-08-15": 1, "2026-08-16": 2, "2026-11-13": 1, "bad": 3, "2026-11-01": 0, "2026-11-02": -4])
+        XCTAssertEqual(long.days.count, 3)
+        long.prune(at: midnight)
+        XCTAssertEqual(long.days, ["2026-08-16": 2, "2026-11-13": 1])
+        XCTAssertEqual(long.series(days: 90, endingAt: midnight).first, DailyCount(day: "2026-08-16", count: 2))
+        // Wire format: welcome carries the past days as an object.
+        let welcome = Data(#"{"type":"welcome","roomCounter":{"day":"2026-11-13","today":1,"total":9},"counterHistory":{"2026-11-12":3,"2026-11-10":4}}"#.utf8)
+        XCTAssertEqual((try? JSONDecoder().decode(RelayMessage.self, from: welcome))?.counterHistory, ["2026-11-12": 3, "2026-11-10": 4])
+    }
     func testLANHelloCarriesCounter() {
         let room = LANProtocol.roomHash("9137")
         let counter = DailyCounter(day: "2026-11-13", today: 3, total: 30)

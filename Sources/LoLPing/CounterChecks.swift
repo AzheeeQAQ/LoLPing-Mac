@@ -46,13 +46,57 @@ enum CounterChecks {
         }
         guard failure == nil, !a.status.contains("太快"), !b.status.contains("太快") else { return fail("rate limit: \(a.status) / \(b.status)") }
         print("PASS shared counter: 27 simultaneous clicks from both sides add up exactly, no rate limit")
+        guard a.supportsCounterHistory, b.supportsCounterHistory else { return fail("relay does not keep daily counts (counter-history-v1)") }
+        guard a.roomHistory.days == [day: 33], b.roomHistory.days == [day: 33] else {
+            return fail("daily history: A \(a.roomHistory.days) B \(b.roomHistory.days)")
+        }
+        print("PASS daily chart: today's point follows the shared counter on both sides")
         b.reconnectAfterWake()
         guard spin(1, until: { b.state != .connected }), b.roomCounter == final else { return fail("B should keep the number while reconnecting") }
         guard spin(15, until: { b.sharedCounterReady && b.roomCounter == final && a.roomCounter == final }) else {
             return fail("after reconnect: \(show(b.roomCounter)) (\(b.status))")
         }
+        guard b.roomHistory.days == [day: 33] else { return fail("daily history after reconnect: \(b.roomHistory.days)") }
         print("PASS shared counter: the number stays through a reconnect and the personal count is not added twice")
         print("All shared counter relay checks passed."); return 0
+    }
+
+    /// With relay/test/counter-history-client-check.mjs, which writes past days into
+    /// the room right after it is created: they reach the friend on join and us on reconnect.
+    static func history(endpoint: String) -> Int32 {
+        let a = RelayClient(defaults: nil), b = RelayClient(defaults: nil)
+        var failure: String?
+        for client in [a, b] { client.serverAddress = endpoint; client.onFailure = { failure = $0 } }
+        defer { a.disconnect(); b.disconnect(); spin(0.3) { false } }
+        a.displayName = "甲"; b.displayName = "乙"
+        let now = Date()
+        func day(_ offset: Int) -> String { DailyCounter.dayKey(daysBefore: offset, from: now) }
+        a.createRoom()
+        guard spin(8, until: { a.state == .connected || failure != nil }), failure == nil else { return fail(failure ?? "A did not connect") }
+        guard a.supportsCounterHistory, a.roomHistory.days.isEmpty else { return fail("new room: \(a.roomHistory.days)") }
+        a.changeRoomCounter(1); a.changeRoomCounter(1)
+        guard spin(5, until: { a.roomCounter?.today == 2 && a.pendingCounterDelta == 0 }), a.roomHistory.days == [day(0): 2] else {
+            return fail("today's clicks: \(a.roomHistory.days)")
+        }
+        b.roomInput = a.formattedRoom; b.joinRoom()
+        // The harness wrote 4 yesterday, 2 three days ago and 9 at 95 days ago (outside the 90 days).
+        let expected = [day(1): 4, day(3): 2, day(0): 2]
+        guard spin(8, until: { b.roomHistory.days == expected }) else { return fail("friend's history on join: \(b.roomHistory.days); \(failure ?? "")") }
+        let series = b.roomHistory.series(days: 7, endingAt: now, live: b.roomCounterDisplay).map(\.count)
+        guard series == [0, 0, 0, 2, 0, 4, 2] else { return fail("7-day series \(series)") }
+        print("PASS daily chart: a friend joining sees the room's past days; days past 90 are dropped")
+        b.changeRoomCounter(1)
+        guard spin(5, until: { a.roomHistory.days[day(0)] == 3 && b.roomHistory.days[day(0)] == 3 }) else {
+            return fail("friend's click on the chart: A \(a.roomHistory.days) B \(b.roomHistory.days)")
+        }
+        a.reconnectAfterWake()
+        guard spin(15, until: { a.sharedCounterReady && a.roomHistory.days == [day(1): 4, day(3): 2, day(0): 3] }) else {
+            return fail("history after reconnect: \(a.roomHistory.days) (\(a.status))")
+        }
+        print("PASS daily chart: clicks from either side update today's point; a reconnect brings the past days back")
+        a.disconnect()
+        guard spin(2, until: { a.roomHistory.days.isEmpty }) else { return fail("leaving should clear the room's history") }
+        print("All daily chart relay checks passed."); return 0
     }
 
     /// Drives the real AppModel (temporary preferences and emote folder) with one
@@ -66,10 +110,24 @@ enum CounterChecks {
         let day = DailyCounter.dayKey(for: Date())
         let personal = DailyCounter(day: day, today: 12, total: 340)
         defaults.set(day, forKey: "counterDay"); defaults.set(12, forKey: "counterToday"); defaults.set(340, forKey: "counterTotal")
+        let pattern = [0, 3, 5, 2, 0, 7, 4, 1, 6, 0, 2, 8, 3]
+        var past: [String: Int] = [:]
+        for offset in 1..<CounterHistory.keptDays where pattern[offset % pattern.count] > 0 {
+            past[DailyCounter.dayKey(daysBefore: offset, from: Date())] = pattern[offset % pattern.count]
+        }
+        past[DailyCounter.dayKey(daysBefore: 120, from: Date())] = 50  // older than 90 days: dropped on load
+        defaults.set(past, forKey: "counterHistory")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let model = AppModel(defaults: defaults, emoteDirectory: emoteFolder)
         defer { model.relay.disconnect(); model.lanEnabled = false; model.shutdown(); spin(0.3) { false } }
         guard model.counter.state == personal else { return fail("saved counter not restored") }
+        var expectedHistory = past; expectedHistory[DailyCounter.dayKey(daysBefore: 120, from: Date())] = nil; expectedHistory[day] = 12
+        guard model.counter.history.days == expectedHistory else { return fail("saved daily history not restored: \(model.counter.history.days.count) days") }
+        guard CounterTrendView.labelIndices(7) == Array(0..<7), CounterTrendView.labelIndices(30) == [1, 8, 15, 22, 29],
+              CounterTrendView.labelIndices(90) == [14, 29, 44, 59, 74, 89], CounterTrendView.shortLabel("2026-11-07") == "11/7",
+              CounterTrendView.longLabel("2026-11-17") == "11月17日 周二", model.counterChartShown, model.counterChartDays == 7 else {
+            return fail("chart labels or defaults")
+        }
 
         model.relayEnabled = true; model.relay.serverAddress = endpoint; model.relay.displayName = "我"
         let friend = RelayClient(defaults: nil)
@@ -99,6 +157,14 @@ enum CounterChecks {
         print("PASS counter UI: shared room counter; + pops up here and at the friend, the friend's + pops up here")
         friend.disconnect(); model.leaveRelayRoom()
         guard spin(2, until: { !model.sharedCounterActive }), model.counter.state == personal else { return fail("leaving should show the personal counter again") }
+        model.counterChartDays = 30
+        guard render(model, to: directory.appendingPathComponent("counter-chart-30.png")) else { return fail("render 30-day chart") }
+        for (days, hover) in [(7, nil), (90, nil), (30, 26)] as [(Int, Int?)] {
+            let view = CounterTrendView(history: model.counter.history, live: model.counter.state, shared: false, days: .constant(days), hovered: hover)
+            guard renderTrend(view, to: directory.appendingPathComponent("counter-chart-\(days)\(hover == nil ? "" : "-hover").png")) else { return fail("render \(days)-day chart") }
+        }
+        guard defaults.integer(forKey: "counterChartDays") == 30 else { return fail("chart range not saved") }
+        print("PASS counter UI: daily chart at 7 / 30 / 90 days from the saved history; the range is remembered")
 
         let room = "UI" + String(UUID().uuidString.prefix(6))
         model.lanEnabled = true
@@ -116,6 +182,9 @@ enum CounterChecks {
         guard spin(5, until: { lanPeers.counters.first?.counter == DailyCounter(day: day, today: 11, total: 339) }), model.counterToastCount >= 1 else {
             return fail("- did not reach the LAN friend: \(lanPeers.counters)")
         }
+        guard model.counter.history.days[day] == 11, (defaults.dictionary(forKey: "counterHistory") as? [String: Int])?[day] == 11 else {
+            return fail("personal click not in the saved daily history")
+        }
         guard render(model, to: directory.appendingPathComponent("counter-lan.png")) else { return fail("render LAN") }
         print("PASS counter UI: LAN keeps personal counters; - pops up and reaches the LAN friend")
         print("All counter UI checks passed: \(directory.path)"); return 0
@@ -130,6 +199,20 @@ enum CounterChecks {
             for view in views { view.seek(to: 0.3); VisualChecks.draw(view, at: CGPoint(x: x, y: 10)); x += view.frame.width + 10 }
         }
         return (try? VisualChecks.save(rep, to: url)) != nil
+    }
+    private static func renderTrend(_ trend: CounterTrendView, to url: URL) -> Bool {
+        let host = NSHostingView(rootView: trend.padding(16).frame(width: 628).background(Palette.card).preferredColorScheme(.dark).tint(Palette.gold))
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.frame = CGRect(origin: .zero, size: CGSize(width: 628, height: host.fittingSize.height))
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        spin(0.5) { false }
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return false }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        do { try rep.representation(using: .png, properties: [:])?.write(to: url) } catch { return false }
+        withExtendedLifetime(window) {}
+        return true
     }
     private static func render(_ model: AppModel, to url: URL) -> Bool {
         let host = NSHostingView(rootView: ControlView(model: model))

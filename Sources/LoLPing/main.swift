@@ -59,6 +59,9 @@ if let index = CommandLine.arguments.firstIndex(of: "--counter-relay-check"), Co
     exit(CounterChecks.relay(endpoint: CommandLine.arguments[index+1]))
 }
 if CommandLine.arguments.contains("--counter-lan-check") { exit(CounterChecks.lan()) }
+if let index = CommandLine.arguments.firstIndex(of: "--counter-history-check"), CommandLine.arguments.count > index+1 {
+    exit(CounterChecks.history(endpoint: CommandLine.arguments[index+1]))
+}
 if let index = CommandLine.arguments.firstIndex(of: "--counter-ui-check"), CommandLine.arguments.count > index+2 {
     exit(CounterChecks.ui(directory: URL(fileURLWithPath: CommandLine.arguments[index+1]), endpoint: CommandLine.arguments[index+2]))
 }

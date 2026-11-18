@@ -34,6 +34,11 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     @Published private(set) var roomCounter: DailyCounter?
     /// Our clicks the relay has not confirmed yet, so the number moves at once.
     @Published private(set) var pendingCounterDelta = 0
+    /// The room's count per day (last 90 days) for the chart: past days from
+    /// the relay's welcome, today from every confirmed update.
+    @Published private(set) var roomHistory = CounterHistory()
+    /// The relay keeps the room's daily counts (1.12.0 relay).
+    private(set) var supportsCounterHistory = false
     /// Our personal counter, offered to each room once as our starting share.
     var localCounter: DailyCounter?
     /// A friend changed the shared counter: (applied change, their name, new value).
@@ -137,7 +142,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
         if let configured = RelayProtocol.endpoint(serverAddress), configured != endpoint { resumeStore.remove(configured) }
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil
         closeTransport(leaving: true)
-        token = nil; room = ""; memberID = ""; peers = []; roomCounter = nil
+        token = nil; room = ""; memberID = ""; peers = []; roomCounter = nil; roomHistory = CounterHistory()
         state = .idle; status = "联动已断开。"
     }
     func sendPing(_ kind: PingKind, position: CGPoint) {
@@ -203,7 +208,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     private func sendHello(generation current: Int) {
         guard wanted, generation == current else { return }
         var hello = RelayMessage(type: "hello")
-        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1", "relative-position-v1", RelayProtocol.sharedCounterCapability]
+        hello.version = RelayProtocol.version; hello.name = displayName; hello.capabilities = ["emote-png-v1", "relative-position-v1", RelayProtocol.sharedCounterCapability, RelayProtocol.counterHistoryCapability]
         hello.counterSeed = localCounter
         hello.action = token == nil ? action : "resume"
         hello.room = room.isEmpty ? nil : room; hello.token = token
@@ -245,6 +250,12 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             supportsEmotes = packet.capabilities?.contains("emote-png-v1") == true
             supportsSharedCounter = packet.capabilities?.contains(RelayProtocol.sharedCounterCapability) == true
             roomCounter = supportsSharedCounter ? packet.roomCounter : nil
+            supportsCounterHistory = supportsSharedCounter && packet.capabilities?.contains(RelayProtocol.counterHistoryCapability) == true
+            if !supportsSharedCounter { roomHistory = CounterHistory() }
+            else if supportsCounterHistory { roomHistory = CounterHistory(packet.counterHistory ?? [:]) }
+            else if code != room { roomHistory = CounterHistory() }  // older relay: keep what we saw in this room
+            if let roomCounter { roomHistory.record(roomCounter) }
+            roomHistory.prune(at: Date())
             room = code; roomInput = formattedRoom; token = credential; memberID = id
             peers = roster; state = .connected; retryCount = 0
             handshakeTimer?.invalidate(); handshakeTimer = nil
@@ -282,7 +293,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
             onEmote?(emote, sender.name); onPositionedEmote?(emote, sender.name, position.point)
         case "room_counter":
             guard state == .connected, supportsSharedCounter, let counter = packet.counter else { return }
-            roomCounter = counter
+            roomCounter = counter; roomHistory.record(counter)
             if let id = packet.eventID?.lowercased(), inFlight.removeValue(forKey: id) != nil { updatePending() }
             if let delta = packet.delta, delta != 0, let sender = packet.sender, sender.id != memberID, peers.contains(sender) {
                 onRoomCounterChange?(delta, sender.name, counter)
@@ -369,7 +380,7 @@ final class RelayClient: NSObject, ObservableObject, URLSessionWebSocketDelegate
     }
     private func terminal(_ message: String) {
         wanted = false; reconnectWork?.cancel(); reconnectWork = nil
-        closeTransport(); token = nil; peers = []; room = ""; memberID = ""; roomCounter = nil
+        closeTransport(); token = nil; peers = []; room = ""; memberID = ""; roomCounter = nil; roomHistory = CounterHistory()
         state = .failed; status = message; onFailure?(message)
     }
     private func closeTransport(leaving: Bool = false) {

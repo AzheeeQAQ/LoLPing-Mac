@@ -13,11 +13,16 @@ const counterCapability = 'daily-counter-v1';
 const maxCounter = 1_000_000_000;
 const sharedCounterCapability = 'shared-counter-v1';
 const maxCounterStep = 20;
+const counterHistoryCapability = 'counter-history-v1';
+const counterHistoryDays = 90;
 // Day is the sender's UTC+8 date; the relay only checks the shape, never clocks.
 const validCounter = (c) => c && typeof c === 'object' && !Array.isArray(c) &&
   typeof c.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.day) &&
   Number.isSafeInteger(c.today) && c.today >= 0 && c.today <= maxCounter &&
   Number.isSafeInteger(c.total) && c.total >= c.today && c.total <= maxCounter;
+// Past days of a room counter: { "2026-11-17": 5, ... }, zero days left out.
+const validCounterHistory = (h) => h && typeof h === 'object' && !Array.isArray(h) && Object.keys(h).length <= 400 &&
+  Object.entries(h).every(([day, n]) => /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isSafeInteger(n) && n > 0 && n <= maxCounter);
 const maxMessageBytes = 49_152;
 const validPosition = (p) => p && typeof p === 'object' && !Array.isArray(p) && Number.isFinite(p.nx) && Number.isFinite(p.ny) && p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1;
 function validEmote(value) {
@@ -40,7 +45,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   for (const value of [graceMs, maxRooms, maxConnections, heartbeatMs, maxConnectionsPerAddress, galleryUploadsPerMinute, roomRetentionMs]) {
     if (!Number.isInteger(value) || value < 1) throw new Error('Relay limits must be positive integers');
   }
-  const roomStore = sessionDirectory ? new RoomStore(sessionDirectory, { retentionMs: roomRetentionMs, maxRooms, validRoom, validUUID, validName, validCounter }) : null;
+  const roomStore = sessionDirectory ? new RoomStore(sessionDirectory, { retentionMs: roomRetentionMs, maxRooms, validRoom, validUUID, validName, validCounter, validCounterHistory }) : null;
   const rooms = roomStore?.rooms ?? new Map();
   const offlineRetention = roomStore ? roomRetentionMs : graceMs;
   let storageHealthy = true;
@@ -51,11 +56,19 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   };
   // Shared room counter. The relay is the single writer; "today" follows the
   // UTC+8 calendar day by the relay's own clock.
-  const utc8Day = () => new Date(clock() + 8*3600*1000).toISOString().slice(0, 10);
+  const utc8Day = (daysBefore = 0) => new Date(clock() + 8*3600*1000 - daysBefore*86_400_000).toISOString().slice(0, 10);
   const roomCounter = (room) => {
     const day = utc8Day();
     if (!room.counter) room.counter = { day, today: 0, total: 0 };
-    else if (room.counter.day !== day) room.counter = { day, today: 0, total: room.counter.total };
+    else if (room.counter.day !== day) {
+      // Keep the finished day for the daily chart, then start today at 0.
+      const history = room.counterHistory ?? (room.counterHistory = {});
+      if (room.counter.today > 0) history[room.counter.day] = room.counter.today;
+      const oldest = utc8Day(counterHistoryDays-1);
+      for (const key of Object.keys(history)) if (key < oldest) delete history[key];
+      room.counter = { day, today: 0, total: room.counter.total };
+      roomsDirty = true;
+    }
     return room.counter;
   };
   const broadcastRoomCounter = (room, extra = {}) => {
@@ -202,6 +215,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         member.counters = Array.isArray(packet.capabilities) && packet.capabilities.includes(counterCapability);
         if (!member.counters) delete member.counter; // e.g. resumed from an older client: no stale snapshot
         member.sharedCounter = Array.isArray(packet.capabilities) && packet.capabilities.includes(sharedCounterCapability);
+        member.counterHistory = member.sharedCounter && packet.capabilities.includes(counterHistoryCapability);
         let seeded = false;
         if (member.sharedCounter && !member.counterSeeded) {
           // First time this member joins with a shared counter: their personal
@@ -215,9 +229,11 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
         }
         clearTimeout(authTimer);
         if (!persistRooms()) { reject(ws, 'storage_failed', '房间保存失败，请稍后重试。'); return; }
+        const shared = member.sharedCounter ? { roomCounter: { ...roomCounter(room) } } : {};
+        if (member.counterHistory) shared.counterHistory = { ...(room.counterHistory ?? {}) };
         send(ws, { type: 'welcome', version: 1, room: room.code, token: member.token,
-          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', counterCapability, sharedCounterCapability, ...(roomStore ? ['persistent-session-v1'] : [])],
-          ...(member.sharedCounter ? { roomCounter: { ...roomCounter(room) } } : {}) });
+          memberID: member.id, peers: roster(room), capabilities: [emoteCapability, 'relative-position-v1', counterCapability, sharedCounterCapability, counterHistoryCapability, ...(roomStore ? ['persistent-session-v1'] : [])],
+          ...shared });
         if (seeded) {
           // Friends already online pick up the merged value; no pop-up for a seed.
           for (const peer of room.members.values()) if (peer !== member && peer.ws && peer.sharedCounter) send(peer.ws, { type: 'room_counter', counter: { ...room.counter } });
@@ -312,6 +328,7 @@ export function createRelay({ graceMs = 60_000, maxRooms = 500, maxConnections =
   sweep.unref(); heartbeat.unref();
   return {
     server,
+    rooms, // read by local test harnesses only
     async listen(port = 8787, host = '127.0.0.1') {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
       return server.address();

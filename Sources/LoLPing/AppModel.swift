@@ -45,6 +45,14 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(lanMuteTeammates, forKey: "lanMuteTeammates"); if lanMuteTeammates { teammateSound.stopAll() }; onStateChange?() }
     }
     @Published private(set) var lanNickname: String
+    static let counterChartRanges = [7, 30, 90]
+    @Published var counterChartShown: Bool {
+        didSet { defaults.set(counterChartShown, forKey: "counterChartShown") }
+    }
+    /// Days shown in the daily chart: 7, 30 or 90.
+    @Published var counterChartDays: Int {
+        didSet { defaults.set(counterChartDays, forKey: "counterChartDays") }
+    }
     @Published private(set) var lanRoomCode: String
     // Text field drafts, committed on Return, focus or window loss, or after a
     // short pause in typing rather than per keystroke, so typing a room code
@@ -88,6 +96,9 @@ final class AppModel: ObservableObject {
         lanEnabled = defaults.bool(forKey: "lanEnabled")
         relayEnabled = !defaults.bool(forKey: "lanEnabled") && defaults.bool(forKey: "relayEnabled")
         lanMuteTeammates = defaults.bool(forKey: "lanMuteTeammates")
+        counterChartShown = defaults.object(forKey: "counterChartShown") as? Bool ?? true
+        let savedRange = defaults.integer(forKey: "counterChartDays")
+        counterChartDays = AppModel.counterChartRanges.contains(savedRange) ? savedRange : 7
         let savedName = LANProtocol.sanitizeName(defaults.string(forKey: "lanNickname") ?? "")
         lanNickname = savedName.isEmpty ? AppModel.defaultNickname : savedName
         lanRoomCode = LANProtocol.normalizeRoomCode(defaults.string(forKey: "lanRoomCode") ?? "")

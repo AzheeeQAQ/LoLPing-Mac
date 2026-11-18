@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export class RoomStore {
-  constructor(directory, { retentionMs, maxRooms, validRoom, validUUID, validName, validCounter = () => false }) {
+  constructor(directory, { retentionMs, maxRooms, validRoom, validUUID, validName, validCounter = () => false, validCounterHistory = () => false }) {
     this.directory = directory; this.retentionMs = retentionMs; this.maxRooms = maxRooms;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.rooms = new Map();
@@ -14,8 +14,10 @@ export class RoomStore {
     for (const value of manifest.rooms) {
       if (!validRoom(value.code) || !Array.isArray(value.members) || value.members.length > 2 || this.rooms.has(value.code)) throw new Error('Invalid saved room');
       if (value.counter !== undefined && !validCounter(value.counter)) throw new Error('Invalid saved counter');
+      if (value.counterHistory !== undefined && !validCounterHistory(value.counterHistory)) throw new Error('Invalid saved counter history');
       const room = { code: value.code, members: new Map() };
       if (value.counter) room.counter = { day: value.counter.day, today: value.counter.today, total: value.counter.total };
+      if (value.counterHistory) room.counterHistory = { ...value.counterHistory };
       for (const m of value.members) {
         if (!validUUID(m.id) || !validName(m.name) || typeof m.tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(m.tokenHash) ||
             !Number.isSafeInteger(m.disconnectedAt) || m.disconnectedAt < 0 || room.members.has(m.id) ||
@@ -28,6 +30,7 @@ export class RoomStore {
   save(rooms) {
     const now = Date.now();
     const values = [...rooms.values()].map(room => ({ code: room.code, ...(room.counter ? { counter: room.counter } : {}),
+      ...(room.counterHistory && Object.keys(room.counterHistory).length ? { counterHistory: room.counterHistory } : {}),
       members: [...room.members.values()].map(m => ({
         id: m.id, name: m.name, tokenHash: m.tokenHash, disconnectedAt: m.ws ? now : m.disconnectedAt,
         ...(m.counterSeeded ? { counterSeeded: true } : {})

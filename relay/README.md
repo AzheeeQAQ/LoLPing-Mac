@@ -179,3 +179,16 @@ node test/counter-client-check.mjs ../.build/debug/LoLPing
 node --test test/rooms.test.mjs   # 起始值合并、并发、去重、不低于 0、跨日、重启保留
 node test/counter-client-check.mjs ../.build/debug/LoLPing   # 生产 Swift 客户端：合并、互弹、同时连点、重连
 ```
+
+## 房间每日次数（1.12.0）
+
+客户端在 `hello.capabilities` 中同时声明 `shared-counter-v1` 与 `counter-history-v1`，服务端在 `welcome.capabilities` 回应 `counter-history-v1`，并在 `welcome` 里附带 `counterHistory`：房间之前每天的次数，形如 `{"2026-11-17":5,"2026-11-16":3}`（UTC+8 日期，次数为 0 的日子不写）。当天的次数就是 `roomCounter.today`，客户端每收到一次 `room_counter` 就更新当天那一点，不需要新的消息类型。
+
+- 跨日（按中继时钟的 UTC+8 日期）时，中继把前一天的今日次数写入 `counterHistory`，再把今日归零；只保留最近 90 天。无论成员客户端版本如何都会记录，朋友稍后升级也能看到完整历史。
+- 历史随房间写入 `rooms.json` 的 `counterHistory` 字段，中继重启、更新后保留。1.11.0 中继读取同一文件时忽略该字段（可直接回滚，回滚后不再记录新的日子）。文件里的历史格式不对时拒绝启动，不会发给客户端。
+- 1.11.0 客户端不声明此能力，`welcome` 不带 `counterHistory`，共享计数照常；1.12.0 客户端连 1.11.0 中继时只显示本次连接期间看到的当天次数。
+
+```sh
+node --test test/rooms.test.mjs   # 跨日入账、跳过 0 的日子、仅发给声明者、90 天裁剪、重启保留、损坏拒绝
+node test/counter-history-client-check.mjs ../.build/debug/LoLPing   # 生产 Swift 客户端：朋友进房拿到历史、双方点击更新当天、重连恢复
+```

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import PingCore
 
-private enum Palette {
+enum Palette {
     static let background = Color(red: 0.035, green: 0.055, blue: 0.080)
     static let card = Color(red: 0.065, green: 0.090, blue: 0.120)
     static let gold = Color(red: 0.83, green: 0.70, blue: 0.44)
@@ -245,6 +245,15 @@ private struct CounterCard: View {
                             .foregroundStyle(Palette.gold).lineLimit(1).accessibilityIdentifier("counterShared")
                     }
                     Text("每天 0:00 重置（UTC+8）").font(.system(size: 9)).foregroundStyle(Palette.secondary)
+                    Button { model.counterChartShown.toggle() } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chart.xyaxis.line")
+                            Text("每日趋势")
+                            Image(systemName: model.counterChartShown ? "chevron.up" : "chevron.down").font(.system(size: 7, weight: .bold))
+                        }.font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.gold).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).padding(.top, 2)
+                    .accessibilityLabel(model.counterChartShown ? "收起每日趋势" : "展开每日趋势")
                 }
                 HStack(spacing: 8) {
                     step("minus", prominent: false, enabled: today > 0 && (!shared || relay.sharedCounterReady)) { model.changeCounter(-1) }
@@ -265,6 +274,11 @@ private struct CounterCard: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+            }
+            if model.counterChartShown {
+                Rectangle().fill(Palette.gold.opacity(0.10)).frame(height: 1).padding(.vertical, 2)
+                CounterTrendView(history: shared ? relay.roomHistory : counter.history, live: shown, shared: shared,
+                                 days: $model.counterChartDays)
             }
         }.padding(.horizontal, 16).padding(.vertical, 12).card()
     }

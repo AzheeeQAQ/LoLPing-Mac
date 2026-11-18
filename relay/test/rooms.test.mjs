@@ -96,3 +96,38 @@ test('shared room counter and seeding survive a restart',async t=>{
  assert.deepEqual(back.welcome.roomCounter,{day,today:5,total:10});
  back.send({type:'leave'});await delay(30);
 });
+test('room counter keeps each finished day for the chart, only for clients that ask, for 90 days, across restarts',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'lolping-rooms-history-'));
+ let now=Date.parse('2026-11-16T04:00:00Z');const clock=()=>now;
+ let relay=createRelay({sessionDirectory:dir,clock});t.after(async()=>{await relay.close();rmSync(dir,{recursive:true,force:true});});let addr=await relay.listen(0);
+ let url=`ws://127.0.0.1:${addr.port}/ws`;const HISTORY=[...SHARED,'counter-history-v1'];
+ const a=await peer(url,'create',{capabilities:HISTORY});
+ assert.ok(a.welcome.capabilities.includes('counter-history-v1'));assert.deepEqual(a.welcome.counterHistory,{});
+ a.send(op(3));await a.next('room_counter');
+ now=Date.parse('2026-11-17T04:00:00Z');a.send(op(2));
+ assert.deepEqual((await a.next('room_counter')).counter,{day:'2026-11-17',today:2,total:5});
+ // 11-18 nobody clicked: it is not stored (the chart shows 0).
+ now=Date.parse('2026-11-19T04:00:00Z');
+ const b=await peer(url,'join',{room:a.welcome.room,capabilities:HISTORY});
+ assert.deepEqual(b.welcome.counterHistory,{'2026-11-16':3,'2026-11-17':2});
+ assert.deepEqual(b.welcome.roomCounter,{day:'2026-11-19',today:0,total:5});
+ assert.deepEqual((await a.next('room_counter')).counter,{day:'2026-11-19',today:0,total:5}); // b's join
+ // 1.11.0 clients get the room counter as before and no history field.
+ const oldRoom=await peer(url,'create',{capabilities:SHARED});
+ assert.equal(oldRoom.welcome.counterHistory,undefined);assert.deepEqual(oldRoom.welcome.roomCounter,{day:'2026-11-19',today:0,total:0});
+ // 90 days later: 11-16 is 90 days back and falls out of the window, 11-17 stays.
+ now=Date.parse('2027-02-14T04:00:00Z');a.send(op(1));assert.equal((await a.next('room_counter')).delta,1);
+ await relay.close();
+ const saved=JSON.parse(readFileSync(join(dir,'rooms.json'),'utf8')).rooms.find(r=>r.code===a.welcome.room);
+ assert.deepEqual(saved.counterHistory,{'2026-11-17':2});assert.deepEqual(saved.counter,{day:'2027-02-14',today:1,total:6});
+ relay=createRelay({sessionDirectory:dir,clock});addr=await relay.listen(0);url=`ws://127.0.0.1:${addr.port}/ws`;
+ const back=await peer(url,'resume',{room:b.welcome.room,token:b.welcome.token,capabilities:HISTORY});
+ assert.deepEqual(back.welcome.counterHistory,{'2026-11-17':2});
+ assert.deepEqual(back.welcome.roomCounter,{day:'2027-02-14',today:1,total:6});
+ await relay.close();
+ // A damaged history in the saved file is refused rather than sent to clients.
+ const file=JSON.parse(readFileSync(join(dir,'rooms.json'),'utf8'));file.rooms[0].counterHistory={'2026-11-17':-1};
+ const {writeFileSync}=await import('node:fs');writeFileSync(join(dir,'rooms.json'),JSON.stringify(file));
+ assert.throws(()=>createRelay({sessionDirectory:dir,clock}),/counter history/);
+ relay=createRelay();
+});

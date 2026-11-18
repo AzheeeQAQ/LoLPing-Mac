@@ -4,8 +4,10 @@ import PingCore
 /// 保存计数，并在 UTC+8 零点自动清零当日计数（应用一直开着也会清零）。
 final class CounterStore: ObservableObject {
     @Published private(set) var state: DailyCounter {
-        didSet { if state != oldValue { save(); onChange?(state) } }
+        didSet { if state != oldValue { recordHistory(); save(); onChange?(state) } }
     }
+    /// 每天的次数（最近 90 天），给折线图用。
+    @Published private(set) var history: CounterHistory
     /// 每次计数变化（包括零点清零）后调用，用来同步给朋友。
     var onChange: ((DailyCounter) -> Void)?
     private let defaults: UserDefaults
@@ -17,6 +19,11 @@ final class CounterStore: ObservableObject {
         var initial = DailyCounter(day: defaults.string(forKey: "counterDay") ?? "",
                                    today: defaults.integer(forKey: "counterToday"),
                                    total: defaults.integer(forKey: "counterTotal"))
+        // The saved day's count goes into the history before it rolls over;
+        // this also carries over the count from versions without a history.
+        var days = CounterHistory(defaults.dictionary(forKey: "counterHistory") as? [String: Int] ?? [:])
+        days.record(initial); days.prune(at: Date())
+        history = days
         initial.rollover(at: Date())
         state = initial
         save(); scheduleReset()
@@ -50,9 +57,14 @@ final class CounterStore: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         resetTimer = timer
     }
+    private func recordHistory() {
+        var next = history; next.record(state); next.prune(at: Date())
+        if next != history { history = next }
+    }
     private func save() {
         defaults.set(state.day, forKey: "counterDay")
         defaults.set(state.today, forKey: "counterToday")
         defaults.set(state.total, forKey: "counterTotal")
+        defaults.set(history.days, forKey: "counterHistory")
     }
 }

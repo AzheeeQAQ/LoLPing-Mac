@@ -18,6 +18,8 @@ public enum RelayProtocol {
     /// 房间共享计数（1.11.0）：服务端统一加减，取代按人同步。
     public static let sharedCounterCapability = "shared-counter-v1"
     public static let maxCounterStep = 20
+    /// 房间每日次数（1.12.0）：welcome 带上之前每天的次数，用于折线图。
+    public static let counterHistoryCapability = "counter-history-v1"
 
     public static func displayName(_ input: String) -> String {
         let normalized = input.precomposedStringWithCanonicalMapping
@@ -65,6 +67,8 @@ public struct RelayMessage: Codable {
     public var counter: DailyCounter?
     public var roomCounter: DailyCounter?
     public var counterSeed: DailyCounter?
+    /// 房间之前每天的次数（UTC+8 日期 → 次数），只在 welcome 里。
+    public var counterHistory: [String: Int]?
     public var delta: Int?
     public var sender: RelayPeer?
     public var code: String?
